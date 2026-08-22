@@ -11,6 +11,8 @@ import {
   LogOut,
   LucideIcon,
   Mail,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   ShieldCheck,
   UserRound,
@@ -178,6 +180,7 @@ function App() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [active, setActive] = useState<View>("employees");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
@@ -367,14 +370,25 @@ function App() {
   if (user.mustChangePassword) return <PasswordChangeScreen email={user.email} onChange={completePasswordChange} onLogout={logout} />;
 
   return (
-    <main className="app">
+    <main className={`app ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
-        <div className="brand">
-          <div className="mark">D</div>
-          <div>
-            <strong>Dayflow</strong>
-            <span>Human Resource Management System</span>
+        <div className="sidebar-top">
+          <div className="brand">
+            <div className="mark">D</div>
+            <div className="brand-copy">
+              <strong>Dayflow</strong>
+              <span>Human Resource Management System</span>
+            </div>
           </div>
+          <button
+            className="sidebar-toggle"
+            type="button"
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
         </div>
         <div className="session">
           <span>{user.role === "admin" ? "Admin / HR Officer" : "Employee"}</span>
@@ -384,15 +398,15 @@ function App() {
           {navItems
             .filter(([id]) => user.role === "admin" || id !== "employees")
             .map(([id, label, Icon]) => (
-              <button className={active === id ? "active" : ""} key={id} onClick={() => setActive(id)}>
+              <button className={active === id ? "active" : ""} key={id} title={label} onClick={() => setActive(id)}>
                 <Icon size={18} />
-                {label}
+                <span>{label}</span>
               </button>
             ))}
         </nav>
-        <button className="logout" onClick={logout}>
+        <button className="logout" title="Log out" onClick={logout}>
           <LogOut size={18} />
-          Log out
+          <span>Log out</span>
         </button>
       </aside>
 
@@ -454,6 +468,17 @@ function App() {
         )}
         {active === "payroll" && <PayrollView role={user.role} rows={payroll} employees={employees} employee={selectedEmployee} token={token} />}
         {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} payroll={payroll} documents={documents} activity={activity} token={token} />}
+        <footer className="app-footer">
+          <div>
+            <strong>Dayflow HRMS</strong>
+            <span>{user.role === "admin" ? "Admin control center" : "Employee self service"}</span>
+          </div>
+          <div>
+            <span>{employees.length} employees</span>
+            <span>{summary.pending} pending leaves</span>
+            <span>{new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>
+          </div>
+        </footer>
       </section>
     </main>
   );
@@ -915,11 +940,11 @@ function EmployeesView({
               </div>
             )}
             <FileInput type="Profile Photo" accept="image/*" onPick={(file) => setUploads({ ...uploads, "Profile Photo": file })} />
-            <FileInput type="Resume" accept=".pdf,.doc,.docx" onPick={(file) => setUploads({ ...uploads, Resume: file })} />
-            <FileInput type="ID Proof" accept=".pdf,image/*" onPick={(file) => setUploads({ ...uploads, "ID Proof": file })} />
-            <FileInput type="Bank Proof" accept=".pdf,image/*" onPick={(file) => setUploads({ ...uploads, "Bank Proof": file })} />
-            <FileInput type="Offer Letter" accept=".pdf,.doc,.docx" onPick={(file) => setUploads({ ...uploads, "Offer Letter": file })} />
-            <FileInput type="Education Certificate" accept=".pdf,image/*" onPick={(file) => setUploads({ ...uploads, "Education Certificate": file })} />
+            <FileInput type="Resume" accept="application/pdf,.pdf" onPick={(file) => setUploads({ ...uploads, Resume: file })} />
+            <FileInput type="ID Proof" accept="application/pdf,.pdf" onPick={(file) => setUploads({ ...uploads, "ID Proof": file })} />
+            <FileInput type="Bank Proof" accept="application/pdf,.pdf" onPick={(file) => setUploads({ ...uploads, "Bank Proof": file })} />
+            <FileInput type="Offer Letter" accept="application/pdf,.pdf" onPick={(file) => setUploads({ ...uploads, "Offer Letter": file })} />
+            <FileInput type="Education Certificate" accept="application/pdf,.pdf" onPick={(file) => setUploads({ ...uploads, "Education Certificate": file })} />
             {error && <div className="error wide">{error}</div>}
             <button className="primary" disabled={busy} onClick={submit}>{busy ? "Creating..." : "Create Employee Account"}</button>
           </div>
@@ -1065,7 +1090,7 @@ function DocumentPanel({
               {documentTypes.map((type) => <option key={type}>{type}</option>)}
             </select>
           </label>
-          <FileInput type={uploadType} accept=".pdf,.doc,.docx,image/*" onPick={setUploadFile} />
+          <FileInput type={uploadType} accept="application/pdf,.pdf" onPick={setUploadFile} />
           <button className="primary" disabled={uploading || !uploadFile} onClick={submitUpload}>{uploading ? "Uploading..." : "Upload For Verification"}</button>
         </div>
       )}

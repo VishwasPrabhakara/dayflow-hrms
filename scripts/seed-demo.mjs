@@ -1,7 +1,8 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { db, initialsFor, refreshSalary, uploadsDir } from "../server/db.js";
 import { hashPassword } from "../server/crypto.js";
+import { createDemoPdfBuffer } from "../server/pdf.js";
 
 const apiPort = Number(process.env.API_PORT || 4000);
 
@@ -56,15 +57,35 @@ function insertLeave(employeeId, type, startDate, endDate, days, remarks, status
 }
 
 function insertDocument(employeeId, type, status) {
-  const existing = db.prepare("SELECT id FROM employee_documents WHERE employee_id = ? AND type = ?").get(employeeId, type);
-  if (existing) return;
+  const existing = db.prepare("SELECT id, file_url, mime_type FROM employee_documents WHERE employee_id = ? AND type = ?").get(employeeId, type);
+  if (existing?.mime_type === "application/pdf") return;
   mkdirSync(uploadsDir, { recursive: true });
-  const fileName = `${employeeId}-${type.toLowerCase().replace(/\s+/g, "-")}.txt`;
-  writeFileSync(join(uploadsDir, fileName), `${type} placeholder for ${employeeId}\n`);
+  if (existing?.file_url) {
+    const oldName = existing.file_url.split("/uploads/").pop();
+    const oldPath = oldName ? join(uploadsDir, oldName) : "";
+    if (oldPath && existsSync(oldPath)) unlinkSync(oldPath);
+  }
+  const employee = db.prepare("SELECT name FROM employees WHERE id = ?").get(employeeId);
+  const fileName = `${employeeId}-${type.toLowerCase().replace(/\s+/g, "-")}.pdf`;
+  writeFileSync(join(uploadsDir, fileName), createDemoPdfBuffer({
+    title: `${type} Document`,
+    employeeId,
+    employeeName: employee?.name || employeeId,
+    type,
+    status,
+  }));
+  if (existing) {
+    db.prepare(`
+      UPDATE employee_documents
+      SET file_name = ?, mime_type = ?, file_url = ?, status = ?, admin_comment = ?
+      WHERE id = ?
+    `).run(fileName, "application/pdf", `http://127.0.0.1:${apiPort}/uploads/${fileName}`, status, status === "Approved" ? "Verified PDF for demo" : "", existing.id);
+    return;
+  }
   db.prepare(`
     INSERT INTO employee_documents (employee_id, type, file_name, mime_type, file_url, status, admin_comment)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(employeeId, type, fileName, "text/plain", `http://127.0.0.1:${apiPort}/uploads/${fileName}`, status, status === "Approved" ? "Verified for demo" : "");
+  `).run(employeeId, type, fileName, "application/pdf", `http://127.0.0.1:${apiPort}/uploads/${fileName}`, status, status === "Approved" ? "Verified PDF for demo" : "");
 }
 
 for (const employee of employees) insertEmployee(employee);
