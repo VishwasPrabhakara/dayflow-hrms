@@ -2123,7 +2123,53 @@ function ReportsView({
         </section>
         {employees.length === 0 && <div className="empty">Reports will populate after employee accounts, attendance, leave, and payroll records are created.</div>}
       </div>
-      <section className="grid-two">
+      <section className="grid-two reports-grid">
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p>Leave workflow</p>
+              <h2>Leaves</h2>
+            </div>
+          </div>
+          <section className="metrics mini">
+            <Metric label="Pending" value={String(leaveCounts.Pending)} />
+            <Metric label="Approved" value={String(leaveCounts.Approved)} />
+            <Metric label="Rejected" value={String(leaveCounts.Rejected)} />
+            <Metric label="Total Days" value={String(leaveCounts.Paid + leaveCounts.Sick + leaveCounts.Unpaid)} />
+          </section>
+          <BarList rows={[
+            { label: "Earned", value: leaveCounts.Paid, max: maxLeave },
+            { label: "Sick", value: leaveCounts.Sick, max: maxLeave },
+            { label: "LWP", value: leaveCounts.Unpaid, max: maxLeave },
+          ]} />
+        </div>
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p>Onboarding health</p>
+              <h2>Documents & Accounts</h2>
+            </div>
+          </div>
+          <section className="metrics mini">
+            <Metric label="Approved Docs" value={String(documentCounts.Approved)} />
+            <Metric label="Pending Docs" value={String(documentCounts.Pending)} />
+            <Metric label="Rejected Docs" value={String(documentCounts.Rejected)} />
+            <Metric label="Pending Accounts" value={String(employees.length - activated)} />
+          </section>
+          <DataTable
+            headers={["Employee", "Account", "Documents"]}
+            empty="No employee onboarding records yet."
+            rows={employees.map((employee) => {
+              const ownDocs = documents.filter((document) => document.employee_id === employee.id);
+              const approvedDocs = ownDocs.filter((document) => document.status === "Approved").length;
+              return [
+                employee.name,
+                employee.accountVerified && !employee.mustChangePassword ? "Activated" : "Pending",
+                `${approvedDocs}/${ownDocs.length} approved`,
+              ];
+            })}
+          />
+        </div>
         <div className="panel">
           <div className="panel-head">
             <div>
@@ -2163,25 +2209,6 @@ function ReportsView({
         <div className="panel">
           <div className="panel-head">
             <div>
-              <p>Leave workflow</p>
-              <h2>Leaves</h2>
-            </div>
-          </div>
-          <section className="metrics mini">
-            <Metric label="Pending" value={String(leaveCounts.Pending)} />
-            <Metric label="Approved" value={String(leaveCounts.Approved)} />
-            <Metric label="Rejected" value={String(leaveCounts.Rejected)} />
-            <Metric label="Total Days" value={String(leaveCounts.Paid + leaveCounts.Sick + leaveCounts.Unpaid)} />
-          </section>
-          <BarList rows={[
-            { label: "Earned", value: leaveCounts.Paid, max: maxLeave },
-            { label: "Sick", value: leaveCounts.Sick, max: maxLeave },
-            { label: "LWP", value: leaveCounts.Unpaid, max: maxLeave },
-          ]} />
-        </div>
-        <div className="panel">
-          <div className="panel-head">
-            <div>
               <p>Payroll liability</p>
               <h2>Payroll</h2>
             </div>
@@ -2195,33 +2222,6 @@ function ReportsView({
               ["Highest Net Pay", topPayroll ? `${topPayroll.name} / ${currency(topPayroll.netPay)}` : "-"],
               ["Lowest Net Pay", lowestPayroll ? `${lowestPayroll.name} / ${currency(lowestPayroll.netPay)}` : "-"],
             ]}
-          />
-        </div>
-        <div className="panel">
-          <div className="panel-head">
-            <div>
-              <p>Onboarding health</p>
-              <h2>Documents & Accounts</h2>
-            </div>
-          </div>
-          <section className="metrics mini">
-            <Metric label="Approved Docs" value={String(documentCounts.Approved)} />
-            <Metric label="Pending Docs" value={String(documentCounts.Pending)} />
-            <Metric label="Rejected Docs" value={String(documentCounts.Rejected)} />
-            <Metric label="Pending Accounts" value={String(employees.length - activated)} />
-          </section>
-          <DataTable
-            headers={["Employee", "Account", "Documents"]}
-            empty="No employee onboarding records yet."
-            rows={employees.map((employee) => {
-              const ownDocs = documents.filter((document) => document.employee_id === employee.id);
-              const approvedDocs = ownDocs.filter((document) => document.status === "Approved").length;
-              return [
-                employee.name,
-                employee.accountVerified && !employee.mustChangePassword ? "Activated" : "Pending",
-                `${approvedDocs}/${ownDocs.length} approved`,
-              ];
-            })}
           />
         </div>
       </section>

@@ -479,6 +479,38 @@ nav button:hover,
   gap: 18px;
 }
 
+.reports-grid {
+  gap: 12px;
+}
+
+.reports-grid .panel {
+  padding: 16px;
+}
+
+.reports-grid .panel-head {
+  margin-bottom: 10px;
+}
+
+.reports-grid .metrics.mini {
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.reports-grid .metrics.mini .metric {
+  min-height: 82px;
+  padding: 12px;
+}
+
+.reports-grid .bar-list {
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.reports-grid th,
+.reports-grid td {
+  padding: 10px 11px;
+}
+
 .panel {
   min-width: 0;
   padding: 20px;
