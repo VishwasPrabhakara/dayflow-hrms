@@ -1,4 +1,5 @@
 import "node:sqlite";
+import "./env.js";
 import cors from "cors";
 import express from "express";
 import { db, createEmployeeId, initialsFor, refreshSalary, rowToEmployee } from "./db.js";
