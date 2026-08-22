@@ -511,7 +511,12 @@ app.get("/api/employees", requireAuth, (req, res) => {
   }
   const rows = db.prepare(`
     SELECT employees.*, users.verified AS account_verified, users.must_change_password
-    FROM employees LEFT JOIN users ON users.employee_id = employees.id
+    FROM employees LEFT JOIN (
+      SELECT employee_id, MAX(verified) AS verified, MIN(must_change_password) AS must_change_password
+      FROM users
+      WHERE employee_id IS NOT NULL
+      GROUP BY employee_id
+    ) users ON users.employee_id = employees.id
     ORDER BY joined DESC
   `).all();
   res.json(rows.map(rowToEmployee));

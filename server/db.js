@@ -297,33 +297,24 @@ if (db.prepare("SELECT COUNT(*) AS count FROM employees").get().count === 0) {
   );
 }
 
-function adminEmployeeName(email) {
-  const local = String(email || "hr").split("@")[0];
-  if (local.toLowerCase() === "hr" || /\d/.test(local)) return "HR Administrator";
-  return `${local
-    .replace(/[._-]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())} Admin`;
-}
-
 function ensureAdminEmployeeRecords() {
   const admins = db.prepare("SELECT id, email, employee_id FROM users WHERE role = 'admin'").all();
-  for (const admin of admins) {
-    const linkedEmployee = admin.employee_id && db.prepare("SELECT * FROM employees WHERE id = ?").get(admin.employee_id);
-    if (linkedEmployee) {
-      const expectedName = adminEmployeeName(admin.email);
-      if (linkedEmployee.title === "HR Officer" && linkedEmployee.department === "People Ops" && linkedEmployee.name !== expectedName) {
-        db.prepare("UPDATE employees SET name = ?, avatar = ? WHERE id = ?").run(expectedName, initialsFor(expectedName), linkedEmployee.id);
-      }
-      continue;
-    }
-    const existingEmployee = db.prepare("SELECT id FROM employees WHERE email = ?").get(admin.email);
-    if (existingEmployee) {
-      db.prepare("UPDATE users SET employee_id = ? WHERE id = ?").run(existingEmployee.id, admin.id);
-      continue;
-    }
+  if (admins.length === 0) return;
 
-    const name = adminEmployeeName(admin.email);
-    const employeeId = createEmployeeId(name);
+  let adminEmployee = db.prepare(`
+    SELECT employees.*
+    FROM employees JOIN users ON users.employee_id = employees.id
+    WHERE users.role = 'admin' AND employees.name = 'HR Administrator'
+    ORDER BY CASE WHEN users.email = 'hr@dayflow.local' THEN 0 ELSE 1 END, employees.id
+    LIMIT 1
+  `).get();
+
+  if (!adminEmployee) {
+    adminEmployee = db.prepare("SELECT * FROM employees WHERE email = ?").get("hr@dayflow.local");
+  }
+
+  if (!adminEmployee) {
+    const employeeId = createEmployeeId("HR Administrator");
     const joined = new Date().toISOString().slice(0, 10);
     const wage = 90000;
     db.prepare(`
@@ -332,8 +323,8 @@ function ensureAdminEmployeeRecords() {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       employeeId,
-      name,
-      admin.email,
+      "HR Administrator",
+      "hr@dayflow.local",
       "+91 90000 00000",
       "HR Desk, Bangalore",
       "HR Officer",
@@ -343,10 +334,46 @@ function ensureAdminEmployeeRecords() {
       joined,
       wage,
       JSON.stringify(["Onboarding", "Attendance", "Payroll", "Compliance"]),
-      initialsFor(name)
+      initialsFor("HR Administrator")
     );
     insertSalary(employeeId, wage);
-    db.prepare("UPDATE users SET employee_id = ? WHERE id = ?").run(employeeId, admin.id);
+    adminEmployee = db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId);
+  }
+
+  db.prepare(`
+    UPDATE employees
+    SET name = ?, email = ?, phone = ?, address = ?, title = ?, department = ?, location = ?, manager = ?, wage = ?, skills_json = ?, avatar = ?
+    WHERE id = ?
+  `).run(
+    "HR Administrator",
+    "hr@dayflow.local",
+    adminEmployee.phone || "+91 90000 00000",
+    adminEmployee.address || "HR Desk, Bangalore",
+    "HR Officer",
+    "People Ops",
+    adminEmployee.location || "Bangalore",
+    adminEmployee.manager || "Nikhil Joshi",
+    Number(adminEmployee.wage || 90000),
+    JSON.stringify(["Onboarding", "Attendance", "Payroll", "Compliance"]),
+    initialsFor("HR Administrator"),
+    adminEmployee.id
+  );
+  refreshSalary(adminEmployee.id, Number(adminEmployee.wage || 90000));
+
+  for (const admin of admins) {
+    db.prepare("UPDATE users SET employee_id = ? WHERE id = ?").run(adminEmployee.id, admin.id);
+  }
+
+  const duplicates = db.prepare(`
+    SELECT id FROM employees
+    WHERE id <> ? AND name = 'HR Administrator' AND title = 'HR Officer' AND department = 'People Ops'
+  `).all(adminEmployee.id);
+  for (const duplicate of duplicates) {
+    db.prepare("UPDATE leave_requests SET employee_id = ? WHERE employee_id = ?").run(adminEmployee.id, duplicate.id);
+    db.prepare("UPDATE attendance SET employee_id = ? WHERE employee_id = ?").run(adminEmployee.id, duplicate.id);
+    db.prepare("UPDATE employee_documents SET employee_id = ? WHERE employee_id = ?").run(adminEmployee.id, duplicate.id);
+    db.prepare("DELETE FROM salary_components WHERE employee_id = ?").run(duplicate.id);
+    db.prepare("DELETE FROM employees WHERE id = ?").run(duplicate.id);
   }
 }
 
