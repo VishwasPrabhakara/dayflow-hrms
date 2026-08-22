@@ -1,5 +1,6 @@
 import {
   Bell,
+  BarChart3,
   Building2,
   BriefcaseBusiness,
   CalendarCheck,
@@ -29,10 +30,11 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 type Role = "admin" | "employee";
-type View = "employees" | "attendance" | "timeoff" | "profile" | "salary";
+type View = "employees" | "attendance" | "timeoff" | "profile" | "salary" | "reports";
 type AttendanceStatus = "present" | "leave" | "absent";
 type LeaveStatus = "Pending" | "Approved" | "Rejected";
 type AttendanceFilter = "all" | AttendanceStatus;
@@ -180,6 +182,7 @@ const navItems = [
   { id: "timeoff", label: "Time Off", icon: Clock3 },
   { id: "profile", label: "My Profile", icon: UserRound },
   { id: "salary", label: "Salary", icon: CreditCard },
+  { id: "reports", label: "Reports", icon: BarChart3 },
 ] as const;
 
 const statusLabel: Record<AttendanceStatus, string> = {
@@ -238,6 +241,16 @@ function daysBetween(start: string, end: string) {
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 1;
   const diff = Math.max(0, endDate.getTime() - startDate.getTime());
   return Math.floor(diff / 86400000) + 1;
+}
+
+function downloadTextFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function App() {
@@ -473,6 +486,10 @@ function App() {
         {activeView === "profile" && <ProfileView employee={selectedEmployee} role={role} onSave={saveEmployee} />}
 
         {activeView === "salary" && <SalaryView employee={selectedEmployee} role={role} />}
+
+        {activeView === "reports" && (
+          <ReportsView employees={visibleEmployees} allEmployees={employeesData} requests={requests} role={role} />
+        )}
       </section>
     </main>
   );
@@ -633,6 +650,7 @@ function viewTitle(view: View, role: Role) {
   if (view === "attendance") return role === "admin" ? "Attendance control" : "My attendance";
   if (view === "timeoff") return role === "admin" ? "Time-off approvals" : "My time off";
   if (view === "salary") return role === "admin" ? "Salary structure" : "My salary";
+  if (view === "reports") return role === "admin" ? "Reports dashboard" : "My reports";
   return role === "admin" ? "Employee profile" : "My profile";
 }
 
@@ -1255,6 +1273,183 @@ function SalaryView({ employee, role }: { employee: Employee; role: Role }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function ReportsView({
+  employees,
+  allEmployees,
+  requests,
+  role,
+}: {
+  employees: Employee[];
+  allEmployees: Employee[];
+  requests: LeaveRequest[];
+  role: Role;
+}) {
+  const scopeRequests =
+    role === "employee" ? requests.filter((request) => request.employeeId === employees[0]?.id) : requests;
+  const present = employees.filter((employee) => employee.status === "present").length;
+  const onLeave = employees.filter((employee) => employee.status === "leave").length;
+  const absent = employees.filter((employee) => employee.status === "absent").length;
+  const approved = scopeRequests.filter((request) => request.status === "Approved").length;
+  const pending = scopeRequests.filter((request) => request.status === "Pending").length;
+  const rejected = scopeRequests.filter((request) => request.status === "Rejected").length;
+  const payroll = employees.reduce((sum, employee) => sum + employee.wage, 0);
+
+  function exportAttendance() {
+    const header = "Employee ID,Name,Department,Status,Check In,Check Out,Monthly Wage";
+    const rows = employees.map((employee) =>
+      [employee.id, employee.name, employee.department, statusLabel[employee.status], employee.checkIn, employee.checkOut, employee.wage].join(",")
+    );
+    downloadTextFile("dayflow-attendance-report.csv", [header, ...rows].join("\n"));
+  }
+
+  function exportLeave() {
+    const header = "Request ID,Employee,Type,Start,End,Days,Status,Note";
+    const rows = scopeRequests.map((request) =>
+      [
+        request.id,
+        request.employee,
+        request.type,
+        request.start,
+        request.end,
+        request.allocation,
+        request.status,
+        `"${request.note.replaceAll('"', '""')}"`,
+      ].join(",")
+    );
+    downloadTextFile("dayflow-leave-report.csv", [header, ...rows].join("\n"));
+  }
+
+  return (
+    <section className="content-grid">
+      <div className="panel wide">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Analytics</p>
+            <h2>{role === "admin" ? "Company reports" : "Personal reports"}</h2>
+          </div>
+          <div className="report-actions">
+            <button className="secondary-button" onClick={exportAttendance}>
+              <Download size={16} />
+              Attendance CSV
+            </button>
+            <button className="secondary-button" onClick={exportLeave}>
+              <Download size={16} />
+              Leave CSV
+            </button>
+          </div>
+        </div>
+
+        <div className="report-grid">
+          <ReportCard title="Attendance Health" value={`${present}/${employees.length}`} note="employees marked present">
+            <StackedBar
+              items={[
+                { label: "Present", value: present, className: "present" },
+                { label: "Leave", value: onLeave, className: "leave" },
+                { label: "Absent", value: absent, className: "absent" },
+              ]}
+              total={Math.max(1, employees.length)}
+            />
+          </ReportCard>
+          <ReportCard title="Leave Decisions" value={`${approved} approved`} note={`${pending} pending / ${rejected} rejected`}>
+            <StackedBar
+              items={[
+                { label: "Approved", value: approved, className: "present" },
+                { label: "Pending", value: pending, className: "leave" },
+                { label: "Rejected", value: rejected, className: "absent" },
+              ]}
+              total={Math.max(1, scopeRequests.length)}
+            />
+          </ReportCard>
+          <ReportCard title="Payroll Run" value={formatMoney(payroll)} note="current monthly liability">
+            <div className="payroll-meter">
+              <span style={{ width: `${Math.min(100, Math.round((payroll / Math.max(1, allEmployees.length * 90000)) * 100))}%` }} />
+            </div>
+          </ReportCard>
+        </div>
+
+        <div className="insight-list">
+          <Insight title="Attendance basis" detail="Attendance records feed payroll working-day calculations." />
+          <Insight title="Leave basis" detail="Approved leaves are counted separately from absences for salary accuracy." />
+          <Insight title="Offline ready" detail="Reports are generated locally from the current browser data set." />
+        </div>
+      </div>
+
+      <div className="panel formula-panel">
+        <p className="eyebrow">Demo script</p>
+        <h2>Best flow to show</h2>
+        <ol className="demo-steps">
+          <li>Sign in and show role switch.</li>
+          <li>Create or edit an employee.</li>
+          <li>Check attendance and filter status.</li>
+          <li>Submit a leave request, then approve it as admin.</li>
+          <li>Open salary and reports, export CSV.</li>
+        </ol>
+      </div>
+    </section>
+  );
+}
+
+function ReportCard({
+  title,
+  value,
+  note,
+  children,
+}: {
+  title: string;
+  value: string;
+  note: string;
+  children: ReactNode;
+}) {
+  return (
+    <article className="report-card">
+      <span>{title}</span>
+      <strong>{value}</strong>
+      <p>{note}</p>
+      {children}
+    </article>
+  );
+}
+
+function StackedBar({
+  items,
+  total,
+}: {
+  items: { label: string; value: number; className: string }[];
+  total: number;
+}) {
+  return (
+    <div className="stacked-wrap">
+      <div className="stacked-bar">
+        {items.map((item) => (
+          <span
+            className={item.className}
+            key={item.label}
+            title={`${item.label}: ${item.value}`}
+            style={{ width: `${(item.value / total) * 100}%` }}
+          />
+        ))}
+      </div>
+      <div className="stacked-legend">
+        {items.map((item) => (
+          <span key={item.label}>{item.label}: {item.value}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Insight({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="insight-row">
+      <Check size={17} />
+      <div>
+        <strong>{title}</strong>
+        <span>{detail}</span>
+      </div>
+    </div>
   );
 }
 

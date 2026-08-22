@@ -448,7 +448,8 @@ button:disabled {
 .metric-card,
 .panel,
 .employee-card,
-.request-card {
+.request-card,
+.report-card {
   border: 1px solid rgba(23, 32, 29, 0.1);
   background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 18px 44px rgba(51, 65, 59, 0.08);
@@ -465,7 +466,8 @@ button:disabled {
 .detail-item span,
 .salary-summary span,
 .component-row span,
-.balance-row span {
+.balance-row span,
+.report-card span {
   color: #66756f;
   font-size: 0.84rem;
 }
@@ -482,7 +484,8 @@ button:disabled {
 .request-card p,
 .request-card small,
 .employee-card small,
-.employee-card > span:not(.status-dot) {
+.employee-card > span:not(.status-dot),
+.report-card p {
   color: #66756f;
 }
 
@@ -1040,6 +1043,123 @@ th {
   font-weight: 800;
 }
 
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.report-card {
+  min-height: 206px;
+  padding: 18px;
+  border-radius: 8px;
+}
+
+.report-card strong {
+  display: block;
+  margin-top: 12px;
+  font-size: 1.5rem;
+}
+
+.report-card p {
+  margin: 6px 0 18px;
+}
+
+.stacked-wrap {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.stacked-bar,
+.payroll-meter {
+  display: flex;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4ebe7;
+}
+
+.stacked-bar span,
+.payroll-meter span {
+  min-width: 5px;
+  height: 100%;
+}
+
+.stacked-bar .present {
+  background: #087443;
+}
+
+.stacked-bar .leave {
+  background: #eeb95e;
+}
+
+.stacked-bar .absent {
+  background: #d65b4f;
+}
+
+.payroll-meter span {
+  background: linear-gradient(90deg, #13665b, #eeb95e);
+}
+
+.stacked-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stacked-legend span {
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: #f0f4f2;
+  font-weight: 800;
+}
+
+.insight-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.insight-row {
+  display: flex;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid rgba(23, 32, 29, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.insight-row strong,
+.insight-row span {
+  display: block;
+}
+
+.insight-row span {
+  margin-top: 4px;
+  color: #66756f;
+  font-size: 0.84rem;
+}
+
+.demo-steps {
+  margin: 16px 0 0;
+  padding-left: 20px;
+  color: #52635d;
+  line-height: 1.65;
+}
+
+.demo-steps li {
+  margin-bottom: 8px;
+}
+
 .rule-box {
   margin-top: 16px;
   padding: 14px;
@@ -1138,6 +1258,8 @@ th {
   .salary-summary,
   .detail-grid,
   .security-grid,
+  .report-grid,
+  .insight-list,
   .inline-form,
   .employee-form,
   .leave-form {
