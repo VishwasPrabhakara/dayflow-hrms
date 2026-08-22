@@ -13,25 +13,8 @@ function buildContent(lines) {
   return `BT /F1 11 Tf 54 742 Td ${textLines.join(" ")} ET`;
 }
 
-export function createDemoPdfBuffer({ title, employeeId, employeeName, type, status }) {
-  const issued = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-  const content = buildContent([
-    "Dayflow HRMS",
-    title,
-    "",
-    `Employee: ${employeeName}`,
-    `Employee ID: ${employeeId}`,
-    `Document Type: ${type}`,
-    `Verification Status: ${status}`,
-    `Issued For Demo: ${issued}`,
-    "",
-    "This generated PDF represents an onboarding document in the HRMS demo workspace.",
-    "It is used so evaluators can open a realistic PDF from the document verification flow.",
-    "",
-    "HR Review",
-    "Reviewer: Admin / HR Officer",
-    "Decision: Pending or approved inside Dayflow",
-  ]);
+function createPdfBuffer(lines) {
+  const content = buildContent(lines);
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -52,4 +35,56 @@ export function createDemoPdfBuffer({ title, employeeId, employeeName, type, sta
   }
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
   return Buffer.from(pdf, "utf8");
+}
+
+export function createDemoPdfBuffer({ title, employeeId, employeeName, type, status }) {
+  const issued = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return createPdfBuffer([
+    "Dayflow HRMS",
+    title,
+    "",
+    `Employee: ${employeeName}`,
+    `Employee ID: ${employeeId}`,
+    `Document Type: ${type}`,
+    `Verification Status: ${status}`,
+    `Issued For Demo: ${issued}`,
+    "",
+    "This generated PDF represents an onboarding document in the HRMS demo workspace.",
+    "It is used so evaluators can open a realistic PDF from the document verification flow.",
+    "",
+    "HR Review",
+    "Reviewer: Admin / HR Officer",
+    "Decision: Pending or approved inside Dayflow",
+  ]);
+}
+
+export function createPayslipPdfBuffer({ slip, currency }) {
+  return createPdfBuffer([
+    "Dayflow HRMS",
+    "Monthly Payslip",
+    "",
+    `Employee: ${slip.name}`,
+    `Employee ID: ${slip.employeeId}`,
+    `Month: ${slip.month}`,
+    `Monthly Salary: ${currency(slip.salary)}`,
+    "",
+    "Attendance Summary",
+    `Working Days: ${slip.workingDays}`,
+    `Present Days: ${slip.presentDays}`,
+    `Half Days: ${slip.halfDays}`,
+    `Leave Days: ${slip.leaveDays}`,
+    `Absent Days: ${slip.absentDays}`,
+    `Payable Days: ${slip.payableDays}`,
+    `Total Hours: ${slip.totalHours.toFixed(1)}`,
+    `Extra Hours: ${slip.extraHours.toFixed(1)}`,
+    "",
+    "Salary Summary",
+    `Gross Pay: ${currency(slip.grossPay)}`,
+    `Extra Pay: ${currency(slip.extraPay)}`,
+    `Deductions: ${currency(slip.deduction)}`,
+    `Net Pay: ${currency(slip.netPay)}`,
+    "",
+    "Salary Components",
+    ...slip.components.map((component) => `${component.label}: ${component.percent}% / ${currency(component.amount)}`),
+  ]);
 }

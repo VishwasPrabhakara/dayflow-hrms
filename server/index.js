@@ -8,6 +8,7 @@ import express from "express";
 import { db, createEmployeeId, initialsFor, refreshSalary, rowToEmployee, uploadsDir } from "./db.js";
 import { hashPassword, randomOtp, randomToken, verifyPassword } from "./crypto.js";
 import { sendEmployeeInviteEmail, sendOtpEmail } from "./mail.js";
+import { createPayslipPdfBuffer } from "./pdf.js";
 
 const app = express();
 const sessions = new Map();
@@ -227,6 +228,10 @@ function payrollFor(employee, month) {
     netPay,
     components,
   };
+}
+
+function inr(value) {
+  return `INR ${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(value)}`;
 }
 
 function saveUploadedFile(file) {
@@ -884,6 +889,20 @@ app.get("/api/payroll", requireAuth, (req, res) => {
     ? db.prepare("SELECT * FROM employees WHERE id = ?").all(employeeId)
     : db.prepare("SELECT * FROM employees ORDER BY name").all();
   res.json(employees.map((employee) => payrollFor(employee, month)));
+});
+
+app.get("/api/payroll/:employeeId/pdf", requireAuth, (req, res) => {
+  const employeeId = req.user.role === "employee" ? req.user.employeeId : req.params.employeeId;
+  const month = req.query.month || new Date().toISOString().slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: "Month must use YYYY-MM format." });
+  if (req.user.role === "employee" && req.params.employeeId !== req.user.employeeId) return res.status(403).json({ error: "Employees can export only their own payslip." });
+  const employee = db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId);
+  if (!employee) return res.status(404).json({ error: "Employee not found." });
+  const slip = payrollFor(employee, month);
+  const pdf = createPayslipPdfBuffer({ slip, currency: inr });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename=\"dayflow-payslip-${employeeId}-${month}.pdf\"`);
+  res.send(pdf);
 });
 
 const port = Number(process.env.API_PORT || 4000);

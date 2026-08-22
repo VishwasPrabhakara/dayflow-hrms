@@ -147,7 +147,7 @@ type ActivityLog = {
 const navItems = [
   ["employees", "Employees", UsersRound],
   ["attendance", "Attendance", CalendarCheck],
-  ["leaves", "Time Off", Clock3],
+  ["leaves", "Leaves", Clock3],
   ["profile", "Profile", UserRound],
   ["payroll", "Payroll", CreditCard],
   ["reports", "Reports", BarChart3],
@@ -174,6 +174,31 @@ function exportCsv(fileName: string, headers: string[], rows: (string | number)[
   link.download = fileName;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function leaveTypeLabel(type: string) {
+  if (type === "Paid") return "Earned Leave";
+  if (type === "Sick") return "Sick Leave";
+  if (type === "Unpaid") return "Leave Without Pay";
+  return type;
+}
+
+function leaveBalanceLabel(type: string) {
+  if (type === "Paid") return "Earned leave balance";
+  if (type === "Sick") return "Sick leave balance";
+  if (type === "Unpaid") return "Leave without pay";
+  return `${type} leave`;
+}
+
+function managerOptions(employees: Employee[], excludeEmployeeId = "") {
+  const managerNames = new Set(["Nikhil Joshi"]);
+  employees.forEach((employee) => {
+    if (employee.manager) managerNames.add(employee.manager);
+    if (employee.id !== excludeEmployeeId && /(manager|lead|head|hr|officer)/i.test(`${employee.title} ${employee.department}`)) {
+      managerNames.add(employee.name);
+    }
+  });
+  return [...managerNames].sort((a, b) => a.localeCompare(b));
 }
 
 function App() {
@@ -487,7 +512,7 @@ function App() {
 function titleFor(view: View, role: Role) {
   if (view === "employees") return "Employee management";
   if (view === "attendance") return role === "admin" ? "Attendance records" : "My attendance";
-  if (view === "leaves") return role === "admin" ? "Leave approvals" : "My leave requests";
+  if (view === "leaves") return role === "admin" ? "Leave approvals" : "My leaves";
   if (view === "payroll") return role === "admin" ? "Payroll control" : "My salary";
   if (view === "reports") return "Reports dashboard";
   return "My profile";
@@ -847,7 +872,7 @@ function EmployeesView({
   });
   const [uploads, setUploads] = useState<Record<string, UploadFile | null>>({});
   const selectedProfile = jobProfiles.find((profile) => profile.id === draft.jobProfileId) || jobProfiles[0];
-  const managers = ["Nikhil Joshi", ...employees.map((employee) => employee.name)];
+  const managers = managerOptions(employees);
   const departments = ["All", ...Array.from(new Set(employees.map((employee) => employee.department)))];
   const documentSummary = {
     total: documents.length,
@@ -1377,7 +1402,10 @@ function LeavesView({
   const activeEmployeeId = role === "admin" ? draft.employeeId : rows[0]?.employee_id || employees[0]?.id || "";
   const activeBalances = balances.filter((balance) => balance.employeeId === activeEmployeeId);
   const pendingRows = rows.filter((row) => row.status === "Pending");
-  const calendarRows = role === "admin" && activeEmployeeId ? rows.filter((row) => row.employee_id === activeEmployeeId) : rows;
+  const requestRows = role === "admin"
+    ? [...rows].sort((a, b) => (a.status === "Pending" ? -1 : 0) - (b.status === "Pending" ? -1 : 0))
+    : rows;
+  const calendarRows = rows;
 
   useEffect(() => {
     if (!draft.employeeId && employees[0]) setDraft((current) => ({ ...current, employeeId: employees[0].id }));
@@ -1415,33 +1443,37 @@ function LeavesView({
       <div className="panel">
         <div className="panel-head">
           <div>
-            <p>{role === "admin" ? "Approval workflow" : "Employee request"}</p>
-            <h2>Time Off</h2>
+            <p>{role === "admin" ? "Leave visibility" : "Employee request"}</p>
+            <h2>Leaves</h2>
           </div>
         </div>
+        {role === "admin" && (
+          <div className="filter-bar compact-filter leave-owner-filter">
+            <label><span>Balance owner</span><select value={draft.employeeId} onChange={(e) => setDraft({ ...draft, employeeId: e.target.value })}>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
+          </div>
+        )}
         <section className="metrics mini">
           {activeBalances.map((balance) => (
             <Metric
               key={balance.type}
-              label={`${balance.type} balance`}
+              label={leaveBalanceLabel(balance.type)}
               value={balance.type === "Unpaid" ? `${balance.approved} used` : `${balance.remaining}/${balance.entitlement}`}
             />
           ))}
           {activeBalances.length === 0 && <div className="empty">Leave balances will appear after an employee is selected.</div>}
         </section>
         {error && <div className="error">{error}</div>}
-        <div className="form-grid compact">
-          {role === "admin" && (
-            <label><span>employee</span><select value={draft.employeeId} onChange={(e) => setDraft({ ...draft, employeeId: e.target.value })}>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
-          )}
-          <label><span>type</span><select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })}><option>Paid</option><option>Sick</option><option>Unpaid</option></select></label>
-          <label><span>start</span><input type="date" value={draft.startDate} onChange={(e) => setDraft({ ...draft, startDate: e.target.value })} /></label>
-          <label><span>end</span><input type="date" value={draft.endDate} onChange={(e) => setDraft({ ...draft, endDate: e.target.value })} /></label>
-          <div className="selection-summary"><strong>{days} day{days === 1 ? "" : "s"} requested</strong></div>
-          <label><span>remarks</span><input value={draft.remarks} onChange={(e) => setDraft({ ...draft, remarks: e.target.value })} /></label>
-          {draft.type === "Sick" && <FileInput type="Sick Certificate" accept=".pdf,image/*" onPick={(file) => setAttachment({ ...file, type: "Sick Certificate" })} />}
-          <button className="primary" disabled={busySubmit} onClick={submitLeave}>{busySubmit ? "Submitting..." : "Submit Leave Request"}</button>
-        </div>
+        {role === "employee" && (
+          <div className="form-grid compact">
+            <label><span>type</span><select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })}><option value="Paid">Earned Leave</option><option value="Sick">Sick Leave</option><option value="Unpaid">Leave Without Pay</option></select></label>
+            <label><span>start</span><input type="date" value={draft.startDate} onChange={(e) => setDraft({ ...draft, startDate: e.target.value })} /></label>
+            <label><span>end</span><input type="date" value={draft.endDate} onChange={(e) => setDraft({ ...draft, endDate: e.target.value })} /></label>
+            <div className="selection-summary"><strong>{days} day{days === 1 ? "" : "s"} requested</strong></div>
+            <label><span>remarks</span><input value={draft.remarks} onChange={(e) => setDraft({ ...draft, remarks: e.target.value })} /></label>
+            {draft.type === "Sick" && <FileInput type="Sick Certificate" accept=".pdf,image/*" onPick={(file) => setAttachment({ ...file, type: "Sick Certificate" })} />}
+            <button className="primary" disabled={busySubmit} onClick={submitLeave}>{busySubmit ? "Submitting..." : "Submit Leave Request"}</button>
+          </div>
+        )}
         <LeaveCalendar month={calendarMonth} rows={calendarRows} onMonth={setCalendarMonth} />
       </div>
       <div className="panel">
@@ -1452,10 +1484,10 @@ function LeavesView({
           </div>
         </div>
         <div className="request-list">
-          {rows.length === 0 && <div className="empty">No leave requests yet.</div>}
-          {rows.map((row) => (
+          {requestRows.length === 0 && <div className="empty">No leave requests yet.</div>}
+          {requestRows.map((row) => (
             <article className="request" key={row.id}>
-              <strong>{row.name} / {row.type}</strong>
+              <strong>{row.name} / {leaveTypeLabel(row.type)}</strong>
               <span>{row.start_date} to {row.end_date} / {row.days} day{row.days === 1 ? "" : "s"} / {row.status}</span>
               <p>{row.remarks}</p>
               {row.attachment_url && <a href={row.attachment_url} target="_blank" rel="noreferrer">Open attachment</a>}
@@ -1500,7 +1532,7 @@ function LeaveCalendar({ month, rows, onMonth }: { month: string; rows: LeaveReq
       <div className="panel-head compact-head">
         <div>
           <p>Calendar view</p>
-          <h2>Leave Planner</h2>
+          <h2>Leave Calendar</h2>
         </div>
         <input type="month" value={month} onChange={(event) => onMonth(event.target.value)} />
       </div>
@@ -1523,7 +1555,7 @@ function LeaveCalendar({ month, rows, onMonth }: { month: string; rows: LeaveReq
           return (
             <div className={status ? `calendar-day ${status}` : "calendar-day"} key={cell.key}>
               <span>{cell.day}</span>
-              {leaveRows.slice(0, 2).map((row) => <em key={`${row.id}-${cell.date}`}>{row.type}</em>)}
+              {leaveRows.slice(0, 2).map((row) => <em key={`${row.id}-${cell.date}`}>{row.name.split(" ")[0]} / {leaveTypeLabel(row.type)}</em>)}
               {leaveRows.length > 2 && <em>+{leaveRows.length - 2}</em>}
             </div>
           );
@@ -1584,7 +1616,7 @@ function ProfileView({
   const [profilePhoto, setProfilePhoto] = useState<UploadFile | undefined>();
   const profilePreview = profilePhoto?.dataUrl || employee.profilePhotoUrl;
   const ownDocuments = documents.filter((document) => document.employee_id === employee.id);
-  const managers = ["Nikhil Joshi", ...employees.filter((item) => item.id !== employee.id).map((item) => item.name)];
+  const managers = managerOptions(employees, employee.id);
   const onboarding = [
     ["Profile created", true],
     ["Login email sent", employee.mustChangePassword !== null],
@@ -1772,30 +1804,39 @@ function PayrollView({
     }
   }
 
+  async function exportPayslipPdf() {
+    if (!selectedSlip) return;
+    setError("");
+    try {
+      const response = await fetch(`/api/payroll/${selectedSlip.employeeId}/pdf?month=${selectedSlip.month}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Unable to export payslip PDF.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `dayflow-payslip-${selectedSlip.employeeId}-${selectedSlip.month}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to export payslip PDF.");
+    }
+  }
+
   const selectedSlip = role === "admin"
     ? slips.find((slip) => slip.employeeId === employeeId) || slips[0]
     : slips[0];
-  const payrollHeaders = ["Metric", "Value"];
   const payrollRows = selectedSlip
     ? [
-        ["Employee", selectedSlip.name],
-        ["Month", selectedSlip.month],
         ["Monthly Salary", currency(selectedSlip.salary)],
-        ["Working Days", selectedSlip.workingDays],
-        ["Present Days", selectedSlip.presentDays],
-        ["Leave Days", selectedSlip.leaveDays],
-        ["Half Days", selectedSlip.halfDays],
-        ["Absent Days", selectedSlip.absentDays],
         ["Payable Days", selectedSlip.payableDays],
         ["Unpaid Days", selectedSlip.unpaidDays],
         ["Total Hours", selectedSlip.totalHours.toFixed(1)],
         ["Extra Hours", selectedSlip.extraHours.toFixed(1)],
         ["Daily Rate", currency(selectedSlip.dailyRate || 0)],
         ["Hourly Rate", currency(selectedSlip.hourlyRate || 0)],
-        ["Extra Pay", currency(selectedSlip.extraPay)],
-        ["Deductions", currency(selectedSlip.deduction)],
-        ["Gross Pay", currency(selectedSlip.grossPay)],
-        ["Net Pay", currency(selectedSlip.netPay)],
       ]
     : [];
 
@@ -1809,8 +1850,8 @@ function PayrollView({
           </div>
           <div className="inline-actions">
             {loading && <span className="status-pill">Calculating</span>}
-            <button className="ghost small" disabled={!selectedSlip} onClick={() => selectedSlip && exportCsv(`dayflow-payroll-${selectedSlip.employeeId}-${selectedSlip.month}.csv`, payrollHeaders, payrollRows)}>
-              <Download size={16} /> Export
+            <button className="ghost small" disabled={!selectedSlip} onClick={exportPayslipPdf}>
+              <Download size={16} /> PDF
             </button>
           </div>
         </div>
@@ -1829,10 +1870,14 @@ function PayrollView({
               <Metric label="Extra Pay" value={currency(selectedSlip.extraPay)} />
               <Metric label="Net Pay" value={currency(selectedSlip.netPay)} />
             </section>
-            <DataTable
-              headers={payrollHeaders}
-              rows={payrollRows.slice(2)}
-            />
+            <section className="payslip-compact">
+              {payrollRows.map(([label, value]) => (
+                <div key={label}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </div>
+              ))}
+            </section>
           </>
         )}
         {!selectedSlip && <div className="empty">No payroll data is available for this selection.</div>}
@@ -1844,14 +1889,24 @@ function PayrollView({
             <h2>Components</h2>
           </div>
         </div>
-        <DataTable
-          headers={["Component", "Percent", "Amount"]}
-          empty="No salary components found for this payslip."
-          rows={[
-            ...(selectedSlip?.components || []).map((row) => [row.label, `${row.percent}%`, currency(row.amount)]),
-            ...(selectedSlip ? [["Component Total", "-", currency(selectedSlip.components.reduce((sum, row) => sum + row.amount, 0))]] : []),
-          ]}
-        />
+        {selectedSlip ? (
+          <div className="component-list">
+            {selectedSlip.components.map((row) => (
+              <div key={row.label}>
+                <span>{row.label}</span>
+                <strong>{currency(row.amount)}</strong>
+                <em>{row.percent}%</em>
+              </div>
+            ))}
+            <div className="total">
+              <span>Component Total</span>
+              <strong>{currency(selectedSlip.components.reduce((sum, row) => sum + row.amount, 0))}</strong>
+              <em>100%</em>
+            </div>
+          </div>
+        ) : (
+          <div className="empty">No salary components found for this payslip.</div>
+        )}
       </div>
     </section>
   );
@@ -1993,6 +2048,25 @@ function ReportsView({
         <div className="panel">
           <div className="panel-head">
             <div>
+              <p>Audit trail</p>
+              <h2>Recent Activity</h2>
+            </div>
+          </div>
+          <DataTable
+            headers={["Time", "Actor", "Action", "Entity", "Detail"]}
+            empty="No activity has been recorded yet."
+            rows={activity.slice(0, 8).map((row) => [
+              new Date(row.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+              row.actor_email,
+              row.action,
+              `${row.entity_type} / ${row.entity_id}`,
+              row.detail || "-",
+            ])}
+          />
+        </div>
+        <div className="panel">
+          <div className="panel-head">
+            <div>
               <p>Attendance distribution</p>
               <h2>Attendance</h2>
             </div>
@@ -2011,7 +2085,7 @@ function ReportsView({
           <div className="panel-head">
             <div>
               <p>Leave workflow</p>
-              <h2>Time Off</h2>
+              <h2>Leaves</h2>
             </div>
           </div>
           <section className="metrics mini">
@@ -2021,9 +2095,9 @@ function ReportsView({
             <Metric label="Total Days" value={String(leaveCounts.Paid + leaveCounts.Sick + leaveCounts.Unpaid)} />
           </section>
           <BarList rows={[
-            { label: "Paid", value: leaveCounts.Paid, max: maxLeave },
+            { label: "Earned", value: leaveCounts.Paid, max: maxLeave },
             { label: "Sick", value: leaveCounts.Sick, max: maxLeave },
-            { label: "Unpaid", value: leaveCounts.Unpaid, max: maxLeave },
+            { label: "LWP", value: leaveCounts.Unpaid, max: maxLeave },
           ]} />
         </div>
         <div className="panel">
@@ -2069,25 +2143,6 @@ function ReportsView({
                 `${approvedDocs}/${ownDocs.length} approved`,
               ];
             })}
-          />
-        </div>
-        <div className="panel">
-          <div className="panel-head">
-            <div>
-              <p>Audit trail</p>
-              <h2>Recent Activity</h2>
-            </div>
-          </div>
-          <DataTable
-            headers={["Time", "Actor", "Action", "Entity", "Detail"]}
-            empty="No activity has been recorded yet."
-            rows={activity.slice(0, 8).map((row) => [
-              new Date(row.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
-              row.actor_email,
-              row.action,
-              `${row.entity_type} / ${row.entity_id}`,
-              row.detail || "-",
-            ])}
           />
         </div>
       </section>

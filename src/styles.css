@@ -555,6 +555,10 @@ nav button:hover,
   margin-bottom: 14px;
 }
 
+.leave-owner-filter {
+  margin-bottom: 12px;
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -907,6 +911,57 @@ th {
   white-space: nowrap;
 }
 
+.payslip-compact,
+.component-list {
+  display: grid;
+  gap: 8px;
+}
+
+.payslip-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.payslip-compact div,
+.component-list div {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(23, 32, 29, 0.08);
+  border-radius: 8px;
+  background: #f6faf8;
+}
+
+.payslip-compact div {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.component-list div {
+  grid-template-columns: minmax(0, 1fr) auto 48px;
+}
+
+.component-list .total {
+  background: #fff8e8;
+}
+
+.payslip-compact span,
+.component-list span,
+.component-list em {
+  min-width: 0;
+  color: #66756f;
+  font-style: normal;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.payslip-compact strong,
+.component-list strong {
+  color: #17201d;
+  white-space: nowrap;
+}
+
 .calendar-day.approved,
 .calendar-legend .approved {
   background: #dff1e8;
@@ -1107,6 +1162,11 @@ th {
   .profile-details div {
     grid-template-columns: 1fr;
     gap: 5px;
+  }
+
+  .payslip-compact,
+  .component-list div {
+    grid-template-columns: 1fr;
   }
 
   .panel-head {
@@ -1644,6 +1704,18 @@ nav button:hover::after,
   animation: button-sheen 0.72s var(--ease);
 }
 
+.auth-panel .primary {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 16px, rgba(255, 255, 255, 0.12) 16px 17px, transparent 17px 32px),
+    linear-gradient(135deg, var(--brand), var(--brand-strong));
+  background-size: 100% 100%, 220% 100%;
+  animation: auth-flow 3.2s linear infinite;
+}
+
+.auth-panel .primary:hover:not(:disabled) {
+  animation-duration: 1.45s;
+}
+
 .panel,
 .metric,
 .request {
@@ -1875,6 +1947,15 @@ tbody tr:nth-child(7) {
   }
   to {
     transform: translateX(120%);
+  }
+}
+
+@keyframes auth-flow {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 0 0, 220% 0;
   }
 }
 
