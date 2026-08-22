@@ -762,6 +762,10 @@ function EmployeesView({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [department, setDepartment] = useState("All");
+  const [accountStatus, setAccountStatus] = useState("All");
+  const [documentStatus, setDocumentStatus] = useState("All");
   const [draft, setDraft] = useState({
     name: "",
     email: "",
@@ -775,6 +779,30 @@ function EmployeesView({
   const [uploads, setUploads] = useState<Record<string, UploadFile | null>>({});
   const selectedProfile = jobProfiles.find((profile) => profile.id === draft.jobProfileId) || jobProfiles[0];
   const managers = ["Nikhil Joshi", ...employees.map((employee) => employee.name)];
+  const departments = ["All", ...Array.from(new Set(employees.map((employee) => employee.department)))];
+  const filteredEmployees = employees.filter((employee) => {
+    const ownDocuments = documents.filter((document) => document.employee_id === employee.id);
+    const approvedDocuments = ownDocuments.filter((document) => document.status === "Approved").length;
+    const pendingDocuments = ownDocuments.some((document) => document.status === "Pending");
+    const rejectedDocuments = ownDocuments.some((document) => document.status === "Rejected");
+    const accountReady = Boolean(employee.accountVerified) && !employee.mustChangePassword;
+    const matchesSearch = [employee.name, employee.id, employee.email, employee.title, employee.department]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.trim().toLowerCase());
+    const matchesDepartment = department === "All" || employee.department === department;
+    const matchesAccount =
+      accountStatus === "All" ||
+      (accountStatus === "Activated" && accountReady) ||
+      (accountStatus === "Pending" && !accountReady);
+    const matchesDocuments =
+      documentStatus === "All" ||
+      (documentStatus === "Approved" && ownDocuments.length > 0 && approvedDocuments === ownDocuments.length) ||
+      (documentStatus === "Pending" && pendingDocuments) ||
+      (documentStatus === "Rejected" && rejectedDocuments) ||
+      (documentStatus === "Missing" && ownDocuments.length === 0);
+    return matchesSearch && matchesDepartment && matchesAccount && matchesDocuments;
+  });
 
   useEffect(() => {
     if (!draft.jobProfileId && jobProfiles[0]) setDraft((current) => ({ ...current, jobProfileId: jobProfiles[0].id }));
@@ -839,16 +867,35 @@ function EmployeesView({
             <button className="primary" disabled={busy} onClick={submit}>{busy ? "Creating..." : "Create Employee Account"}</button>
           </div>
         )}
+        <div className="filter-bar employee-filters">
+          <label><span>Search</span><input placeholder="Name, email, ID, role" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <label><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value)}>{departments.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label><span>Account</span><select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}><option>All</option><option>Activated</option><option>Pending</option></select></label>
+          <label><span>Documents</span><select value={documentStatus} onChange={(event) => setDocumentStatus(event.target.value)}><option>All</option><option>Approved</option><option>Pending</option><option>Rejected</option><option>Missing</option></select></label>
+        </div>
         <div className="cards">
           {employees.length === 0 && <div className="empty">No employees added yet. Create the first employee account to start onboarding.</div>}
-          {employees.map((employee) => (
-            <button className="employee-card" key={employee.id} onClick={() => onSelect(employee.id)}>
-              {employee.profilePhotoUrl ? <img className="avatar photo" src={employee.profilePhotoUrl} alt="" /> : <div className="avatar">{employee.avatar}</div>}
-              <strong>{employee.name}</strong>
-              <span>{employee.id}</span>
-              <p>{employee.title} / {employee.department}</p>
-            </button>
-          ))}
+          {employees.length > 0 && filteredEmployees.length === 0 && <div className="empty">No employees match the selected filters.</div>}
+          {filteredEmployees.map((employee) => {
+            const ownDocuments = documents.filter((document) => document.employee_id === employee.id);
+            const approvedDocuments = ownDocuments.filter((document) => document.status === "Approved").length;
+            const accountReady = Boolean(employee.accountVerified) && !employee.mustChangePassword;
+            return (
+              <button className="employee-card" key={employee.id} onClick={() => onSelect(employee.id)}>
+                <div className="card-topline">
+                  {employee.profilePhotoUrl ? <img className="avatar photo" src={employee.profilePhotoUrl} alt="" /> : <div className="avatar">{employee.avatar}</div>}
+                  <span className={accountReady ? "status-dot ready" : "status-dot pending"} />
+                </div>
+                <strong>{employee.name}</strong>
+                <span>{employee.id}</span>
+                <p>{employee.title} / {employee.department}</p>
+                <div className="card-meta">
+                  <span>{accountReady ? "Activated" : "Pending login"}</span>
+                  <span>{ownDocuments.length ? `${approvedDocuments}/${ownDocuments.length} docs` : "No docs"}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
       <DocumentPanel documents={documents} role="admin" onDecision={onDocumentDecision} />
