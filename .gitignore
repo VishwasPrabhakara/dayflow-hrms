@@ -5,6 +5,7 @@ build/
 coverage/
 *.tsbuildinfo
 work/
+data/
 .env
 .env.local
 .DS_Store
