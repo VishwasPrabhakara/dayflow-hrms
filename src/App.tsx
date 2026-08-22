@@ -251,6 +251,15 @@ function App() {
     await loadWorkspace();
   }
 
+  async function uploadEmployeeDocument(document: UploadFile) {
+    await api("/api/documents", {
+      method: "POST",
+      body: JSON.stringify(document),
+    });
+    setNotice("Document uploaded for HR verification.");
+    await loadWorkspace();
+  }
+
   async function updateEmployee(employeeId: string, input: EmployeeUpdateForm) {
     await api<{ employee: Employee }>(`/api/employees/${employeeId}`, {
       method: "PATCH",
@@ -398,6 +407,7 @@ function App() {
             documents={documents}
             onUpdate={updateEmployee}
             onDocumentDecision={decideDocument}
+            onDocumentUpload={uploadEmployeeDocument}
           />
         )}
         {active === "payroll" && <PayrollView role={user.role} rows={payroll} employees={employees} employee={selectedEmployee} token={token} />}
@@ -889,14 +899,20 @@ function DocumentPanel({
   documents,
   role,
   onDecision,
+  onUpload,
 }: {
   documents: EmployeeDocument[];
   role: Role;
   onDecision?: (id: number, status: "Approved" | "Rejected", comment: string) => Promise<void>;
+  onUpload?: (document: UploadFile) => Promise<void>;
 }) {
   const [comments, setComments] = useState<Record<number, string>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [uploadType, setUploadType] = useState("Resume");
+  const [uploadFile, setUploadFile] = useState<UploadFile | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const documentTypes = ["Resume", "ID Proof", "Bank Proof", "Offer Letter", "Education Certificate", "Experience Letter", "Other"];
 
   async function decide(id: number, status: "Approved" | "Rejected") {
     if (!onDecision) return;
@@ -912,6 +928,23 @@ function DocumentPanel({
     }
   }
 
+  async function submitUpload() {
+    if (!onUpload || !uploadFile) {
+      setError("Choose a document before uploading.");
+      return;
+    }
+    setError("");
+    setUploading(true);
+    try {
+      await onUpload({ ...uploadFile, type: uploadType });
+      setUploadFile(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to upload document.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="panel">
       <div className="panel-head">
@@ -920,6 +953,18 @@ function DocumentPanel({
           <h2>Documents</h2>
         </div>
       </div>
+      {role === "employee" && onUpload && (
+        <div className="form-grid compact document-upload">
+          <label>
+            <span>document type</span>
+            <select value={uploadType} onChange={(event) => setUploadType(event.target.value)}>
+              {documentTypes.map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
+          <FileInput type={uploadType} accept=".pdf,.doc,.docx,image/*" onPick={setUploadFile} />
+          <button className="primary" disabled={uploading || !uploadFile} onClick={submitUpload}>{uploading ? "Uploading..." : "Upload For Verification"}</button>
+        </div>
+      )}
       <div className="request-list">
         {error && <div className="error">{error}</div>}
         {documents.length === 0 && <div className="empty">No documents uploaded yet.</div>}
@@ -1235,6 +1280,7 @@ function ProfileView({
   documents,
   onUpdate,
   onDocumentDecision,
+  onDocumentUpload,
 }: {
   employee: Employee;
   role: Role;
@@ -1243,6 +1289,7 @@ function ProfileView({
   documents: EmployeeDocument[];
   onUpdate: (employeeId: string, input: EmployeeUpdateForm) => Promise<void>;
   onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => Promise<void>;
+  onDocumentUpload: (document: UploadFile) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1374,7 +1421,7 @@ function ProfileView({
         <p><FileText size={16} /> Resume, bank proof, identity documents, offer letter, and certificates</p>
         <div className="tags">{employee.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
       </div>
-      <DocumentPanel documents={ownDocuments} role={role} onDecision={onDocumentDecision} />
+      <DocumentPanel documents={ownDocuments} role={role} onDecision={onDocumentDecision} onUpload={role === "employee" ? onDocumentUpload : undefined} />
     </section>
   );
 }

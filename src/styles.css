@@ -455,6 +455,10 @@ nav button:hover,
   font-weight: 800;
 }
 
+.document-upload {
+  margin-bottom: 14px;
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
