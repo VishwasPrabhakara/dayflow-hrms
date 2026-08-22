@@ -27,6 +27,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .auth {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 430px;
@@ -128,6 +133,32 @@ button {
 .tabs button.active {
   background: #17201d;
   color: #fff;
+}
+
+.role-select {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.role-select button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  border: 1px solid rgba(23, 32, 29, 0.14);
+  border-radius: 8px;
+  background: #fff;
+  color: #52635d;
+  font-weight: 850;
+}
+
+.role-select button.active {
+  border-color: #13665b;
+  background: #e7f2ee;
+  color: #13665b;
 }
 
 .field {

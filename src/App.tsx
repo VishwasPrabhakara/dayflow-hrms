@@ -8,6 +8,7 @@ import {
   FileText,
   Fingerprint,
   LogOut,
+  LucideIcon,
   Mail,
   Plus,
   ShieldCheck,
@@ -285,63 +286,103 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function AuthScreen({ onSession }: { onSession: (token: string, user: User) => void }) {
   const [mode, setMode] = useState<"admin" | "employee" | "signup">("admin");
+  const [signupRole, setSignupRole] = useState<Role>("employee");
   const [identifier, setIdentifier] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [otp, setOtp] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function resetAuthFlow(nextMode = mode) {
+    setMode(nextMode);
+    setChallengeId("");
+    setOtp("");
+    setError("");
+    setBusy(false);
+  }
 
   async function login() {
+    if (busy || challengeId) return;
     setError("");
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifier, password }),
-    });
-    const data = await response.json();
-    if (!response.ok) return setError(data.error || "Unable to sign in.");
-    if (data.requiresOtp) {
-      setChallengeId(data.challengeId);
-      return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier, password }),
+      });
+      const data = await response.json();
+      if (!response.ok) return setError(data.error || "Unable to sign in.");
+      if (data.requiresOtp) {
+        setChallengeId(data.challengeId);
+        return;
+      }
+      onSession(data.token, data.user);
+    } finally {
+      setBusy(false);
     }
-    onSession(data.token, data.user);
   }
 
   async function verifyEmployeeOtp() {
+    if (busy) return;
     setError("");
-    const response = await fetch("/api/auth/verify-login-otp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ challengeId, otp }),
-    });
-    const data = await response.json();
-    if (!response.ok) return setError(data.error || "OTP verification failed.");
-    onSession(data.token, data.user);
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/verify-login-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challengeId, otp }),
+      });
+      const data = await response.json();
+      if (!response.ok) return setError(data.error || "OTP verification failed.");
+      onSession(data.token, data.user);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function requestSignupOtp() {
+    if (busy || challengeId) return;
     setError("");
-    const response = await fetch("/api/auth/signup/request-otp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email: identifier, password }),
-    });
-    const data = await response.json();
-    if (!response.ok) return setError(data.error || "Unable to send OTP.");
-    setChallengeId(data.challengeId);
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/signup/request-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: signupRole, employeeId, name, email: identifier, password }),
+      });
+      const data = await response.json();
+      if (!response.ok) return setError(data.error || "Unable to send OTP.");
+      setChallengeId(data.challengeId);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function verifySignupOtp() {
+    if (busy) return;
     setError("");
-    const response = await fetch("/api/auth/signup/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ challengeId, otp }),
-    });
-    const data = await response.json();
-    if (!response.ok) return setError(data.error || "OTP verification failed.");
-    onSession(data.token, data.user);
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/signup/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challengeId, otp }),
+      });
+      const data = await response.json();
+      if (!response.ok) return setError(data.error || "OTP verification failed.");
+      onSession(data.token, data.user);
+    } finally {
+      setBusy(false);
+    }
   }
 
   const needsOtp = Boolean(challengeId);
@@ -360,29 +401,43 @@ function AuthScreen({ onSession }: { onSession: (token: string, user: User) => v
       </section>
       <section className="auth-panel">
         <div className="tabs">
-          <button className={mode === "admin" ? "active" : ""} onClick={() => { setMode("admin"); setChallengeId(""); }}>
+          <button className={mode === "admin" ? "active" : ""} onClick={() => resetAuthFlow("admin")}>
             Admin Login
           </button>
-          <button className={mode === "employee" ? "active" : ""} onClick={() => { setMode("employee"); setChallengeId(""); }}>
+          <button className={mode === "employee" ? "active" : ""} onClick={() => resetAuthFlow("employee")}>
             Employee Login
           </button>
-          <button className={mode === "signup" ? "active" : ""} onClick={() => { setMode("signup"); setChallengeId(""); }}>
+          <button className={mode === "signup" ? "active" : ""} onClick={() => resetAuthFlow("signup")}>
             Sign Up
           </button>
         </div>
 
-        {mode === "signup" && <Field label="Full Name" icon={UserRound} value={name} onChange={setName} />}
+        {mode === "signup" && (
+          <div className="role-select">
+            <button className={signupRole === "employee" ? "active" : ""} onClick={() => { setSignupRole("employee"); setChallengeId(""); }}>
+              <UserRound size={16} /> Employee
+            </button>
+            <button className={signupRole === "admin" ? "active" : ""} onClick={() => { setSignupRole("admin"); setChallengeId(""); }}>
+              <BriefcaseBusiness size={16} /> Admin / HR
+            </button>
+          </div>
+        )}
+        {mode === "signup" && signupRole === "admin" && <Field label="Full Name" icon={UserRound} value={name} onChange={setName} />}
+        {mode === "signup" && signupRole === "employee" && (
+          <Field label="Employee ID" icon={Fingerprint} value={employeeId} onChange={(value) => setEmployeeId(value.toUpperCase())} />
+        )}
         <Field label={mode === "employee" ? "Employee ID or Email" : "Email"} icon={Mail} value={identifier} onChange={setIdentifier} />
         <Field label="Password" icon={ShieldCheck} value={password} onChange={setPassword} type="password" />
+        {mode === "signup" && <Field label="Confirm Password" icon={ShieldCheck} value={confirmPassword} onChange={setConfirmPassword} type="password" />}
         {needsOtp && <Field label="Email OTP" icon={Fingerprint} value={otp} onChange={setOtp} />}
 
         {error && <div className="error">{error}</div>}
 
-        {mode === "admin" && <button className="primary" onClick={login}>Sign In</button>}
-        {mode === "employee" && !needsOtp && <button className="primary" onClick={login}>Send OTP</button>}
-        {mode === "employee" && needsOtp && <button className="primary" onClick={verifyEmployeeOtp}>Verify OTP</button>}
-        {mode === "signup" && !needsOtp && <button className="primary" onClick={requestSignupOtp}>Send Email OTP</button>}
-        {mode === "signup" && needsOtp && <button className="primary" onClick={verifySignupOtp}>Verify & Create Account</button>}
+        {mode === "admin" && <button className="primary" disabled={busy} onClick={login}>{busy ? "Signing in..." : "Sign In"}</button>}
+        {mode === "employee" && !needsOtp && <button className="primary" disabled={busy || needsOtp} onClick={login}>{busy ? "Sending OTP..." : "Send OTP"}</button>}
+        {mode === "employee" && needsOtp && <button className="primary" disabled={busy} onClick={verifyEmployeeOtp}>{busy ? "Verifying..." : "Verify OTP"}</button>}
+        {mode === "signup" && !needsOtp && <button className="primary" disabled={busy || needsOtp} onClick={requestSignupOtp}>{busy ? "Sending OTP..." : "Send Email OTP"}</button>}
+        {mode === "signup" && needsOtp && <button className="primary" disabled={busy} onClick={verifySignupOtp}>{busy ? "Creating..." : "Verify & Create Account"}</button>}
       </section>
     </main>
   );
@@ -396,7 +451,7 @@ function Field({
   type = "text",
 }: {
   label: string;
-  icon: typeof Mail;
+  icon: LucideIcon;
   value: string;
   onChange: (value: string) => void;
   type?: string;

@@ -48,6 +48,7 @@ function employeeByUser(user) {
 async function createOtpChallenge({ email, purpose, payload, name }) {
   const id = randomToken();
   const code = randomOtp();
+  db.prepare("UPDATE otp_challenges SET used = 1 WHERE email = ? AND purpose = ? AND used = 0").run(email, purpose);
   db.prepare(`
     INSERT INTO otp_challenges (id, email, code, purpose, payload_json, expires_at)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -117,20 +118,43 @@ app.post("/api/auth/verify-login-otp", (req, res) => {
 
 app.post("/api/auth/signup/request-otp", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) return res.status(400).json({ error: "Name, email, and password are required." });
+    const { role = "admin", employeeId, name, email, password } = req.body;
+    if (!["admin", "employee"].includes(role)) return res.status(400).json({ error: "Choose a valid role." });
+    if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
     if (!/^(?=.*[A-Z])(?=.*\d).{8,}$/.test(password)) {
       return res.status(400).json({ error: "Password needs 8 characters, one capital letter, and one number." });
     }
-    if (db.prepare("SELECT id FROM users WHERE email = ?").get(email)) {
-      return res.status(409).json({ error: "An account already exists for this email." });
+
+    if (role === "admin") {
+      if (!name) return res.status(400).json({ error: "Name is required for Admin/HR signup." });
+      if (db.prepare("SELECT id FROM users WHERE email = ?").get(email)) {
+        return res.status(409).json({ error: "An account already exists for this email." });
+      }
+      return res.json(
+        await createOtpChallenge({
+          email,
+          purpose: "signup",
+          payload: { role, name, email, password },
+          name,
+        })
+      );
     }
+
+    if (!employeeId) return res.status(400).json({ error: "Employee ID is required for employee signup." });
+    const employee = db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId.trim().toUpperCase());
+    if (!employee) return res.status(404).json({ error: "Employee record not found. Ask HR to create your profile first." });
+    if (employee.email.toLowerCase() !== email.toLowerCase()) {
+      return res.status(400).json({ error: "Email must match the employee profile created by HR." });
+    }
+    const existingUser = db.prepare("SELECT id, verified FROM users WHERE employee_id = ? OR email = ?").get(employee.id, email);
+    if (existingUser?.verified) return res.status(409).json({ error: "This employee account is already active." });
+
     res.json(
       await createOtpChallenge({
         email,
-        purpose: "admin-signup",
-        payload: { name, email, password },
-        name,
+        purpose: "signup",
+        payload: { role, employeeId: employee.id, email, password },
+        name: employee.name,
       })
     );
   } catch (error) {
@@ -140,11 +164,27 @@ app.post("/api/auth/signup/request-otp", async (req, res) => {
 
 app.post("/api/auth/signup/verify", (req, res) => {
   try {
-    const payload = verifyChallenge(req.body.challengeId, req.body.otp, "admin-signup");
-    db.prepare(`
-      INSERT INTO users (role, employee_id, email, password_hash, verified, must_change_password)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run("admin", null, payload.email, hashPassword(payload.password), 1, 0);
+    const payload = verifyChallenge(req.body.challengeId, req.body.otp, "signup");
+    if (payload.role === "employee") {
+      const existingUser = db.prepare("SELECT id FROM users WHERE employee_id = ? OR email = ?").get(payload.employeeId, payload.email);
+      if (existingUser) {
+        db.prepare("UPDATE users SET email = ?, password_hash = ?, verified = 1, must_change_password = 0 WHERE id = ?").run(
+          payload.email,
+          hashPassword(payload.password),
+          existingUser.id
+        );
+      } else {
+        db.prepare(`
+          INSERT INTO users (role, employee_id, email, password_hash, verified, must_change_password)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run("employee", payload.employeeId, payload.email, hashPassword(payload.password), 1, 0);
+      }
+    } else {
+      db.prepare(`
+        INSERT INTO users (role, employee_id, email, password_hash, verified, must_change_password)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run("admin", null, payload.email, hashPassword(payload.password), 1, 0);
+    }
     const user = db.prepare("SELECT * FROM users WHERE email = ?").get(payload.email);
     res.json(sessionFor(user));
   } catch (error) {
