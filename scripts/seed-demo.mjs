@@ -58,7 +58,6 @@ function insertLeave(employeeId, type, startDate, endDate, days, remarks, status
 
 function insertDocument(employeeId, type, status) {
   const existing = db.prepare("SELECT id, file_url, mime_type FROM employee_documents WHERE employee_id = ? AND type = ?").get(employeeId, type);
-  if (existing?.mime_type === "application/pdf") return;
   mkdirSync(uploadsDir, { recursive: true });
   if (existing?.file_url) {
     const oldName = existing.file_url.split("/uploads/").pop();
