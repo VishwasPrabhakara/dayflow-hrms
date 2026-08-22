@@ -274,7 +274,6 @@ function App() {
     setJobProfiles(jobProfileRows);
     setDocuments(documentRows);
     setActivity(activityRows);
-    setSelectedEmployeeId((current) => current || employeeRows[0]?.id || "");
   }
 
   async function startSession(nextToken: string, nextUser: User) {
@@ -383,7 +382,9 @@ function App() {
     await loadWorkspace();
   }
 
-  const selectedEmployee = employees.find((employee) => employee.id === selectedEmployeeId) || employees[0];
+  const selectedEmployee =
+    employees.find((employee) => employee.id === selectedEmployeeId) ||
+    (user?.role === "employee" ? employees.find((employee) => employee.id === user.employeeId) : undefined);
   const summary = useMemo(() => {
     const present = attendance.filter((row) => row.status === "Present").length;
     const pending = leaves.filter((row) => row.status === "Pending").length;
@@ -423,7 +424,15 @@ function App() {
           {navItems
             .filter(([id]) => user.role === "admin" || id !== "employees")
             .map(([id, label, Icon]) => (
-              <button className={active === id ? "active" : ""} key={id} title={label} onClick={() => setActive(id)}>
+              <button
+                className={active === id ? "active" : ""}
+                key={id}
+                title={label}
+                onClick={() => {
+                  if (id === "profile" && user.role === "admin") setSelectedEmployeeId("");
+                  setActive(id);
+                }}
+              >
                 <Icon size={18} />
                 <span>{label}</span>
               </button>
@@ -478,7 +487,10 @@ function App() {
         {active === "leaves" && (
           <LeavesView role={user.role} employees={employees} rows={leaves} balances={leaveBalances} onCreate={createLeave} onDecision={decideLeave} />
         )}
-        {active === "profile" && selectedEmployee && (
+        {active === "profile" && user.role === "admin" && !selectedEmployeeId && (
+          <AdminProfile user={user} employees={employees} documents={documents} leaves={leaves} activity={activity} />
+        )}
+        {active === "profile" && selectedEmployee && (user.role === "employee" || selectedEmployeeId) && (
           <ProfileView
             employee={selectedEmployee}
             role={user.role}
@@ -524,6 +536,83 @@ function Metric({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </article>
+  );
+}
+
+function AdminProfile({
+  user,
+  employees,
+  documents,
+  leaves,
+  activity,
+}: {
+  user: User;
+  employees: Employee[];
+  documents: EmployeeDocument[];
+  leaves: LeaveRequest[];
+  activity: ActivityLog[];
+}) {
+  const pendingDocuments = documents.filter((document) => document.status === "Pending").length;
+  const pendingLeaves = leaves.filter((leave) => leave.status === "Pending").length;
+  const activated = employees.filter((employee) => employee.accountVerified && !employee.mustChangePassword).length;
+
+  return (
+    <section className="grid-two admin-profile-layout">
+      <div className="panel profile">
+        <div className="avatar big"><ShieldCheck size={42} /></div>
+        <h2>HR Administrator</h2>
+        <p>Admin / HR Officer</p>
+        <span>{user.email}</span>
+      </div>
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <p>Workspace access</p>
+            <h2>Admin Profile</h2>
+          </div>
+        </div>
+        <dl className="profile-details">
+          {[
+            ["Email", user.email],
+            ["Role", "Admin / HR Officer"],
+            ["Access", "Employee onboarding, attendance, leaves, payroll, reports"],
+            ["Account status", "Active"],
+          ].map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <p>Admin controls</p>
+            <h2>Permissions</h2>
+          </div>
+        </div>
+        <div className="checklist">
+          {["Create and edit employees", "Approve onboarding documents", "Correct attendance records", "Approve or reject leave requests", "Generate payroll and reports"].map((item) => (
+            <div className="done" key={item}><Check size={16} /><span>{item}</span></div>
+          ))}
+        </div>
+      </div>
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <p>Live workload</p>
+            <h2>HR Desk</h2>
+          </div>
+        </div>
+        <section className="metrics mini">
+          <Metric label="Activated" value={`${activated}/${employees.length}`} />
+          <Metric label="Pending Docs" value={String(pendingDocuments)} />
+          <Metric label="Pending Leaves" value={String(pendingLeaves)} />
+          <Metric label="Recent Logs" value={String(activity.length)} />
+        </section>
+      </div>
+    </section>
   );
 }
 
