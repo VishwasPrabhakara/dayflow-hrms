@@ -125,6 +125,7 @@ The database is created automatically on first run. Local data is stored inside 
 npm run dev        # Run backend and frontend together
 npm run server     # Run only the API server
 npm run dev:client # Run only the Vite frontend
+npm run smoke      # Check core API readiness while the backend is running
 npm run build      # Type-check and create production build
 npm run preview    # Preview production build
 ```
