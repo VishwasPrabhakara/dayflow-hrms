@@ -3,6 +3,8 @@ dist/
 build/
 .next/
 coverage/
+*.tsbuildinfo
+work/
 .env
 .env.local
 .DS_Store
