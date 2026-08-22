@@ -14,6 +14,7 @@ const sessions = new Map();
 const pendingLogins = new Map();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const documentTypes = new Set(["Profile Photo", "Resume", "ID Proof", "Bank Proof", "Offer Letter", "Education Certificate", "Experience Letter", "Other"]);
+const leaveEntitlements = { Paid: 24, Sick: 7, Unpaid: 0 };
 
 app.use(cors({ origin: "http://127.0.0.1:5173" }));
 app.use(express.json({ limit: "8mb" }));
@@ -77,6 +78,54 @@ function attendanceTotals(checkIn, checkOut, preferredStatus = "Present") {
     workHours: ["Absent", "Leave"].includes(status) ? 0 : workHours,
     extraHours: ["Absent", "Leave"].includes(status) ? 0 : Math.max(0, Math.round((workHours - 8) * 100) / 100),
   };
+}
+
+function datesBetween(startDate, endDate) {
+  const dates = [];
+  const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
+  const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
+  const cursor = new Date(Date.UTC(startYear, startMonth - 1, startDay));
+  const end = new Date(Date.UTC(endYear, endMonth - 1, endDay));
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function leaveBalanceFor(employeeId) {
+  const approved = db
+    .prepare("SELECT type, SUM(days) AS days FROM leave_requests WHERE employee_id = ? AND status = 'Approved' GROUP BY type")
+    .all(employeeId)
+    .reduce((acc, row) => ({ ...acc, [row.type]: Number(row.days || 0) }), {});
+  const pending = db
+    .prepare("SELECT type, SUM(days) AS days FROM leave_requests WHERE employee_id = ? AND status = 'Pending' GROUP BY type")
+    .all(employeeId)
+    .reduce((acc, row) => ({ ...acc, [row.type]: Number(row.days || 0) }), {});
+  return Object.keys(leaveEntitlements).map((type) => ({
+    employeeId,
+    type,
+    entitlement: leaveEntitlements[type],
+    approved: approved[type] || 0,
+    pending: pending[type] || 0,
+    remaining: Math.max(0, leaveEntitlements[type] - (approved[type] || 0)),
+  }));
+}
+
+function writeLeaveAttendance(leave) {
+  for (const workDate of datesBetween(leave.start_date, leave.end_date)) {
+    db.prepare(`
+      INSERT INTO attendance (employee_id, work_date, check_in, check_out, status, work_hours, extra_hours, note)
+      VALUES (?, ?, NULL, NULL, 'Leave', 0, 0, ?)
+      ON CONFLICT(employee_id, work_date) DO UPDATE SET
+        check_in = NULL,
+        check_out = NULL,
+        status = 'Leave',
+        work_hours = 0,
+        extra_hours = 0,
+        note = excluded.note
+    `).run(leave.employee_id, workDate, `${leave.type} leave approved`);
+  }
 }
 
 function saveUploadedFile(file) {
@@ -582,25 +631,50 @@ app.get("/api/leaves", requireAuth, (req, res) => {
   res.json(rows);
 });
 
+app.get("/api/leave-balances", requireAuth, (req, res) => {
+  const employeeIds = req.user.role === "employee"
+    ? [req.user.employeeId]
+    : db.prepare("SELECT id FROM employees ORDER BY name").all().map((row) => row.id);
+  res.json(employeeIds.flatMap(leaveBalanceFor));
+});
+
 app.post("/api/leaves", requireAuth, (req, res) => {
-  const { type, startDate, endDate, remarks } = req.body;
+  const { type, startDate, endDate, remarks, attachment } = req.body;
   const employeeId = req.user.role === "employee" ? req.user.employeeId : req.body.employeeId;
   if (!employeeId || !type || !startDate || !endDate || !remarks) {
     return res.status(400).json({ error: "Employee, leave type, dates, and remarks are required." });
   }
+  if (!["Paid", "Sick", "Unpaid"].includes(type)) return res.status(400).json({ error: "Invalid leave type." });
   const days = Math.floor((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
   if (days < 1) return res.status(400).json({ error: "End date cannot be before start date." });
+  const balance = leaveBalanceFor(employeeId).find((row) => row.type === type);
+  if (type !== "Unpaid" && balance && days > balance.remaining) {
+    return res.status(400).json({ error: `Only ${balance.remaining} ${type.toLowerCase()} leave days are available.` });
+  }
+  const savedAttachment = attachment ? {
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    fileUrl: saveUploadedFile(attachment),
+  } : { fileName: "", mimeType: "", fileUrl: "" };
   db.prepare(`
-    INSERT INTO leave_requests (employee_id, type, start_date, end_date, days, remarks)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(employeeId, type, startDate, endDate, days, remarks);
+    INSERT INTO leave_requests (employee_id, type, start_date, end_date, days, remarks, attachment_file_name, attachment_mime_type, attachment_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(employeeId, type, startDate, endDate, days, remarks, savedAttachment.fileName, savedAttachment.mimeType, savedAttachment.fileUrl);
   res.status(201).json({ ok: true });
 });
 
 app.patch("/api/leaves/:id", requireAuth, requireAdmin, (req, res) => {
   const { status, adminComment } = req.body;
   if (!["Approved", "Rejected"].includes(status)) return res.status(400).json({ error: "Invalid leave decision." });
+  const leave = db.prepare("SELECT * FROM leave_requests WHERE id = ?").get(req.params.id);
+  if (!leave) return res.status(404).json({ error: "Leave request not found." });
+  if (status === "Approved" && leave.type !== "Unpaid") {
+    const balance = leaveBalanceFor(leave.employee_id).find((row) => row.type === leave.type);
+    const available = (balance?.remaining || 0) + (leave.status === "Approved" ? leave.days : 0);
+    if (leave.days > available) return res.status(400).json({ error: `Insufficient ${leave.type.toLowerCase()} leave balance.` });
+  }
   db.prepare("UPDATE leave_requests SET status = ?, admin_comment = ? WHERE id = ?").run(status, adminComment || "", req.params.id);
+  if (status === "Approved") writeLeaveAttendance(leave);
   res.json({ ok: true });
 });
 

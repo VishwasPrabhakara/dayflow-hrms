@@ -72,6 +72,9 @@ db.exec(`
     remarks TEXT NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('Pending','Approved','Rejected')) DEFAULT 'Pending',
     admin_comment TEXT DEFAULT '',
+    attachment_file_name TEXT DEFAULT '',
+    attachment_mime_type TEXT DEFAULT '',
+    attachment_url TEXT DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -124,6 +127,18 @@ if (!hasColumn("attendance", "extra_hours")) {
 
 if (!hasColumn("attendance", "note")) {
   db.prepare("ALTER TABLE attendance ADD COLUMN note TEXT DEFAULT ''").run();
+}
+
+if (!hasColumn("leave_requests", "attachment_file_name")) {
+  db.prepare("ALTER TABLE leave_requests ADD COLUMN attachment_file_name TEXT DEFAULT ''").run();
+}
+
+if (!hasColumn("leave_requests", "attachment_mime_type")) {
+  db.prepare("ALTER TABLE leave_requests ADD COLUMN attachment_mime_type TEXT DEFAULT ''").run();
+}
+
+if (!hasColumn("leave_requests", "attachment_url")) {
+  db.prepare("ALTER TABLE leave_requests ADD COLUMN attachment_url TEXT DEFAULT ''").run();
 }
 
 export function initialsFor(name) {

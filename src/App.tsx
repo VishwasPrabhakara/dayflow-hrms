@@ -72,6 +72,17 @@ type LeaveRequest = {
   remarks: string;
   status: "Pending" | "Approved" | "Rejected";
   admin_comment: string;
+  attachment_file_name: string;
+  attachment_url: string;
+};
+
+type LeaveBalance = {
+  employeeId: string;
+  type: "Paid" | "Sick" | "Unpaid";
+  entitlement: number;
+  approved: number;
+  pending: number;
+  remaining: number;
 };
 
 type SalaryComponent = {
@@ -123,6 +134,7 @@ function App() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
+  const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
   const [payroll, setPayroll] = useState<SalaryComponent[]>([]);
   const [jobProfiles, setJobProfiles] = useState<JobProfile[]>([]);
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
@@ -146,10 +158,11 @@ function App() {
 
   async function loadWorkspace(authToken = token) {
     const headers = { Authorization: `Bearer ${authToken}` };
-    const [employeeRows, attendanceRows, leaveRows, payrollRows, jobProfileRows, documentRows] = await Promise.all([
+    const [employeeRows, attendanceRows, leaveRows, leaveBalanceRows, payrollRows, jobProfileRows, documentRows] = await Promise.all([
       fetch("/api/employees", { headers }).then((r) => r.json()),
       fetch("/api/attendance", { headers }).then((r) => r.json()),
       fetch("/api/leaves", { headers }).then((r) => r.json()),
+      fetch("/api/leave-balances", { headers }).then((r) => r.json()),
       fetch("/api/payroll", { headers }).then((r) => r.json()),
       fetch("/api/job-profiles", { headers }).then((r) => r.json()),
       fetch("/api/documents", { headers }).then((r) => r.json()),
@@ -157,6 +170,7 @@ function App() {
     setEmployees(employeeRows);
     setAttendance(attendanceRows);
     setLeaves(leaveRows);
+    setLeaveBalances(leaveBalanceRows);
     setPayroll(payrollRows);
     setJobProfiles(jobProfileRows);
     setDocuments(documentRows);
@@ -176,6 +190,7 @@ function App() {
     setEmployees([]);
     setAttendance([]);
     setLeaves([]);
+    setLeaveBalances([]);
     setPayroll([]);
     setJobProfiles([]);
     setDocuments([]);
@@ -338,7 +353,7 @@ function App() {
           />
         )}
         {active === "leaves" && (
-          <LeavesView role={user.role} employees={employees} rows={leaves} onCreate={createLeave} onDecision={decideLeave} />
+          <LeavesView role={user.role} employees={employees} rows={leaves} balances={leaveBalances} onCreate={createLeave} onDecision={decideLeave} />
         )}
         {active === "profile" && selectedEmployee && (
           <ProfileView
@@ -983,18 +998,20 @@ function AttendanceView({
   );
 }
 
-type LeaveForm = { employeeId?: string; type: string; startDate: string; endDate: string; remarks: string };
+type LeaveForm = { employeeId?: string; type: string; startDate: string; endDate: string; remarks: string; attachment?: UploadFile };
 
 function LeavesView({
   role,
   employees,
   rows,
+  balances,
   onCreate,
   onDecision,
 }: {
   role: Role;
   employees: Employee[];
   rows: LeaveRequest[];
+  balances: LeaveBalance[];
   onCreate: (input: LeaveForm) => void;
   onDecision: (id: number, status: "Approved" | "Rejected", comment: string) => void;
 }) {
@@ -1005,7 +1022,17 @@ function LeavesView({
     endDate: new Date().toISOString().slice(0, 10),
     remarks: "",
   });
+  const [attachment, setAttachment] = useState<UploadFile | undefined>();
   const [comment, setComment] = useState("");
+  const days = Math.max(0, Math.floor((new Date(draft.endDate).getTime() - new Date(draft.startDate).getTime()) / 86400000) + 1);
+  const activeEmployeeId = role === "admin" ? draft.employeeId : rows[0]?.employee_id || employees[0]?.id || "";
+  const activeBalances = balances.filter((balance) => balance.employeeId === activeEmployeeId);
+  const pendingRows = rows.filter((row) => row.status === "Pending");
+
+  useEffect(() => {
+    if (!draft.employeeId && employees[0]) setDraft((current) => ({ ...current, employeeId: employees[0].id }));
+  }, [draft.employeeId, employees]);
+
   return (
     <section className="grid-two">
       <div className="panel">
@@ -1015,25 +1042,43 @@ function LeavesView({
             <h2>Time Off</h2>
           </div>
         </div>
+        <section className="metrics mini">
+          {activeBalances.map((balance) => (
+            <Metric
+              key={balance.type}
+              label={`${balance.type} balance`}
+              value={balance.type === "Unpaid" ? `${balance.approved} used` : `${balance.remaining}/${balance.entitlement}`}
+            />
+          ))}
+        </section>
         <div className="form-grid compact">
           {role === "admin" && (
-            <label><span>employee</span><select value={draft.employeeId} onChange={(e) => setDraft({ ...draft, employeeId: e.target.value })}>{employees.map((e) => <option key={e.id}>{e.id}</option>)}</select></label>
+            <label><span>employee</span><select value={draft.employeeId} onChange={(e) => setDraft({ ...draft, employeeId: e.target.value })}>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
           )}
           <label><span>type</span><select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })}><option>Paid</option><option>Sick</option><option>Unpaid</option></select></label>
           <label><span>start</span><input type="date" value={draft.startDate} onChange={(e) => setDraft({ ...draft, startDate: e.target.value })} /></label>
           <label><span>end</span><input type="date" value={draft.endDate} onChange={(e) => setDraft({ ...draft, endDate: e.target.value })} /></label>
+          <div className="selection-summary"><strong>{days} day{days === 1 ? "" : "s"} requested</strong></div>
           <label><span>remarks</span><input value={draft.remarks} onChange={(e) => setDraft({ ...draft, remarks: e.target.value })} /></label>
-          <button className="primary" onClick={() => onCreate(draft)}>Submit Leave Request</button>
+          {draft.type === "Sick" && <FileInput type="Sick Certificate" accept=".pdf,image/*" onPick={(file) => setAttachment({ ...file, type: "Sick Certificate" })} />}
+          <button className="primary" onClick={() => onCreate({ ...draft, attachment })}>Submit Leave Request</button>
         </div>
       </div>
       <div className="panel">
-        <h2>Requests</h2>
+        <div className="panel-head">
+          <div>
+            <p>{role === "admin" ? `${pendingRows.length} pending approvals` : "My request history"}</p>
+            <h2>Requests</h2>
+          </div>
+        </div>
         <div className="request-list">
           {rows.map((row) => (
             <article className="request" key={row.id}>
               <strong>{row.name} / {row.type}</strong>
-              <span>{row.start_date} to {row.end_date} / {row.status}</span>
+              <span>{row.start_date} to {row.end_date} / {row.days} day{row.days === 1 ? "" : "s"} / {row.status}</span>
               <p>{row.remarks}</p>
+              {row.attachment_url && <a href={row.attachment_url} target="_blank" rel="noreferrer">Open attachment</a>}
+              {row.admin_comment && <p>Admin comment: {row.admin_comment}</p>}
               {role === "admin" && row.status === "Pending" && (
                 <div className="inline-actions">
                   <input placeholder="Admin comment" value={comment} onChange={(e) => setComment(e.target.value)} />
