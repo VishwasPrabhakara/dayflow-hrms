@@ -11,11 +11,14 @@ Dayflow is an 8-hour hackathon HRMS built for the Odoo x NMIT Bangalore Hackatho
 - Forgot password workflow with OTP verification.
 - Employee profile management with profile photo, resume, ID proof, bank proof, offer letter, and education certificates.
 - Admin document approval/rejection queue with per-document comments.
+- Employee self-service uploads for missing onboarding documents.
+- Document dashboard with pending, approved, rejected, and missing-document visibility.
 - Attendance check-in/check-out, admin manual attendance correction, monthly filters, and extra-hour calculation.
 - Time-off requests for paid, sick, and unpaid leave with balance validation and sick certificate upload.
 - Admin approval/rejection workflow for leave requests.
-- Payroll calculation from salary, attendance, leave, absences, and extra hours.
+- Payroll calculation from salary, attendance, leave, absences, extra hours, daily rate, and hourly rate.
 - Executive reports for attendance, leave, payroll, account activation, and document health.
+- HR audit trail for employee, document, attendance, and leave actions.
 - Local-first SQLite database and local file storage for uploaded documents.
 
 ## Tech Stack
@@ -88,6 +91,14 @@ Password: Admin@2026
 
 The database is created automatically on first run. Local data is stored inside `data/`, which is intentionally ignored by Git.
 
+For a richer demo dataset, run:
+
+```bash
+npm run seed:demo
+```
+
+This adds additional employees, attendance rows, leave requests, document verification states, and an activity log entry. The command is idempotent and can be run more than once.
+
 ## Demo Flow
 
 1. Log in as Admin/HR using the seeded admin account.
@@ -101,18 +112,20 @@ The database is created automatically on first run. Local data is stored inside 
 9. Return as Admin/HR and approve or reject documents and leave requests.
 10. Mark attendance or adjust attendance manually.
 11. Review Payroll and Reports to see attendance-linked calculations.
+12. Use CSV exports, document dashboard, leave calendar, and Recent Activity to show evaluation-ready operational visibility.
 
 ## Validation And Reliability
 
 - Required fields are validated on the backend before database writes.
+- Email, phone, salary, date, month, and attendance time formats are validated.
 - Passwords require at least 8 characters, one uppercase letter, and one number.
 - Employee login requires OTP verification.
 - Temporary employee passwords force password change after first login.
-- Leave requests validate dates and available balance.
-- Sick leave can include a certificate upload.
-- Attendance prevents invalid check-in/check-out sequences.
+- Leave requests validate dates, available balance, overlapping leave windows, and sick certificate requirements.
+- Attendance prevents invalid check-in/check-out sequences and invalid manual time ranges.
 - Payroll is calculated dynamically from attendance and leave records.
 - Forms use loading/error states to avoid accidental double submissions.
+- Admin decisions and key HR actions are recorded in an audit trail.
 
 ## Evaluator
 
@@ -125,6 +138,7 @@ The database is created automatically on first run. Local data is stored inside 
 npm run dev        # Run backend and frontend together
 npm run server     # Run only the API server
 npm run dev:client # Run only the Vite frontend
+npm run seed:demo  # Add richer demo data into the local SQLite database
 npm run smoke      # Check core API readiness while the backend is running
 npm run build      # Type-check and create production build
 npm run preview    # Preview production build

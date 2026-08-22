@@ -15,6 +15,7 @@ const pendingLogins = new Map();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const documentTypes = new Set(["Profile Photo", "Resume", "ID Proof", "Bank Proof", "Offer Letter", "Education Certificate", "Experience Letter", "Other"]);
 const leaveEntitlements = { Paid: 24, Sick: 7, Unpaid: 0 };
+const attendanceStatuses = new Set(["Present", "Absent", "Half-day", "Leave"]);
 
 app.use(cors({ origin: "http://127.0.0.1:5173" }));
 app.use(express.json({ limit: "8mb" }));
@@ -54,6 +55,42 @@ function validatePassword(password) {
   return /^(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
 }
 
+function isEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function isPhone(value) {
+  return /^[+()\-\s\d]{8,18}$/.test(String(value || "").trim());
+}
+
+function isDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function isTime(value) {
+  return !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value));
+}
+
+function assertEmployeeInput({ name, email, phone, address, joined, salary }) {
+  if (!String(name || "").trim()) throw new Error("Employee name is required.");
+  if (!isEmail(email)) throw new Error("Enter a valid employee email address.");
+  if (!isPhone(phone)) throw new Error("Enter a valid phone number.");
+  if (!String(address || "").trim()) throw new Error("Address is required.");
+  if (!isDate(joined)) throw new Error("Choose a valid joining date.");
+  if (!Number.isFinite(Number(salary)) || Number(salary) <= 0) throw new Error("Monthly salary must be greater than zero.");
+}
+
+function logActivity(user, action, entityType, entityId, detail = "") {
+  const actorRole = user?.role || "system";
+  const actorEmail = user?.email || "system";
+  db.prepare(`
+    INSERT INTO activity_logs (actor_role, actor_email, action, entity_type, entity_id, detail)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(actorRole, actorEmail, action, entityType, String(entityId), detail);
+}
+
 function minutesFor(time) {
   if (!time) return null;
   const [hours, minutes] = time.split(":").map(Number);
@@ -64,6 +101,9 @@ function minutesFor(time) {
 function attendanceTotals(checkIn, checkOut, preferredStatus = "Present") {
   const start = minutesFor(checkIn);
   const end = minutesFor(checkOut);
+  if (checkIn && start === null) throw new Error("Check-in time is invalid.");
+  if (checkOut && end === null) throw new Error("Check-out time is invalid.");
+  if (start !== null && end !== null && end <= start) throw new Error("Check-out must be after check-in.");
   let workHours = 0;
   if (start !== null && end !== null && end > start) {
     workHours = Math.round(((end - start) / 60) * 100) / 100;
@@ -153,8 +193,9 @@ function payrollFor(employee, month) {
   const payableDays = Math.max(0, presentDays + leaveDays + halfDays * 0.5);
   const unpaidDays = Math.max(0, absentDays + halfDays * 0.5);
   const dailyRate = workingDays ? employee.wage / workingDays : 0;
+  const hourlyRate = employee.wage / Math.max(1, workingDays * 8);
   const deduction = Math.round(dailyRate * unpaidDays);
-  const extraPay = Math.round((employee.wage / Math.max(1, workingDays * 8)) * extraHours);
+  const extraPay = Math.round(hourlyRate * extraHours);
   const grossPay = Math.round(employee.wage + extraPay);
   const netPay = Math.max(0, grossPay - deduction);
   return {
@@ -171,6 +212,8 @@ function payrollFor(employee, month) {
     unpaidDays,
     totalHours: Math.round(totalHours * 100) / 100,
     extraHours: Math.round(extraHours * 100) / 100,
+    dailyRate: Math.round(dailyRate),
+    hourlyRate: Math.round(hourlyRate),
     extraPay,
     deduction,
     grossPay,
@@ -285,6 +328,7 @@ app.post("/api/auth/signup/request-otp", async (req, res) => {
     const { role = "admin", employeeId, name, email, password } = req.body;
     if (!["admin", "employee"].includes(role)) return res.status(400).json({ error: "Choose a valid role." });
     if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
+    if (!isEmail(email)) return res.status(400).json({ error: "Enter a valid email address." });
     if (!validatePassword(password)) {
       return res.status(400).json({ error: "Password needs 8 characters, one capital letter, and one number." });
     }
@@ -451,6 +495,11 @@ app.get("/api/documents", requireAuth, (req, res) => {
   res.json(rows);
 });
 
+app.get("/api/activity", requireAuth, requireAdmin, (req, res) => {
+  const rows = db.prepare("SELECT * FROM activity_logs ORDER BY created_at DESC, id DESC LIMIT 50").all();
+  res.json(rows);
+});
+
 app.post("/api/documents", requireAuth, (req, res) => {
   try {
     const employeeId = req.user.role === "employee" ? req.user.employeeId : req.body.employeeId;
@@ -458,6 +507,7 @@ app.post("/api/documents", requireAuth, (req, res) => {
     if (req.user.role === "employee" && employeeId !== req.user.employeeId) return res.status(403).json({ error: "Employees can upload only their own documents." });
     if (!db.prepare("SELECT id FROM employees WHERE id = ?").get(employeeId)) return res.status(404).json({ error: "Employee not found." });
     insertDocument(employeeId, req.body);
+    logActivity(req.user, "uploaded document", "employee", employeeId, req.body.type || "Document");
     res.status(201).json({ ok: true });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -467,7 +517,10 @@ app.post("/api/documents", requireAuth, (req, res) => {
 app.patch("/api/documents/:id", requireAuth, requireAdmin, (req, res) => {
   const { status, adminComment } = req.body;
   if (!["Approved", "Rejected"].includes(status)) return res.status(400).json({ error: "Invalid document decision." });
+  const document = db.prepare("SELECT * FROM employee_documents WHERE id = ?").get(req.params.id);
+  if (!document) return res.status(404).json({ error: "Document not found." });
   db.prepare("UPDATE employee_documents SET status = ?, admin_comment = ? WHERE id = ?").run(status, adminComment || "", req.params.id);
+  logActivity(req.user, `${status.toLowerCase()} document`, "document", req.params.id, `${document.type} for ${document.employee_id}`);
   res.json({ ok: true });
 });
 
@@ -475,6 +528,11 @@ app.post("/api/employees", requireAuth, requireAdmin, async (req, res) => {
   const { name, email, phone, address, jobProfileId, manager, joined, salary, documents = [] } = req.body;
   if (!name || !email || !phone || !address || !jobProfileId || !manager || !joined || !salary) {
     return res.status(400).json({ error: "All employee profile fields are required." });
+  }
+  try {
+    assertEmployeeInput({ name, email, phone, address, joined, salary });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
   }
   if (db.prepare("SELECT id FROM employees WHERE email = ?").get(email) || db.prepare("SELECT id FROM users WHERE email = ?").get(email)) {
     return res.status(409).json({ error: "An employee or user already exists with this email." });
@@ -519,6 +577,7 @@ app.post("/api/employees", requireAuth, requireAdmin, async (req, res) => {
       temporaryPassword: tempPassword,
       loginUrl: process.env.CLIENT_URL || "http://127.0.0.1:5173",
     });
+    logActivity(req.user, "created employee", "employee", id, `${name} / ${profile.title}`);
     db.exec("COMMIT");
     res.status(201).json({ employee: rowToEmployee(db.prepare("SELECT * FROM employees WHERE id = ?").get(id)), credentials: { id, emailed: true } });
   } catch (error) {
@@ -539,6 +598,14 @@ app.patch("/api/employees/:id", requireAuth, (req, res) => {
     const { name, email, phone, address, jobProfileId, manager, joined, salary, profilePhoto } = req.body;
     let next = { ...employee };
     if (req.user.role === "admin") {
+      assertEmployeeInput({
+        name: name || next.name,
+        email: email || next.email,
+        phone: phone || next.phone,
+        address: address || next.address,
+        joined: joined || next.joined,
+        salary: salary || next.wage,
+      });
       if (name) next.name = name;
       if (email) {
         const duplicate = db.prepare("SELECT id FROM employees WHERE email = ? AND id <> ?").get(email, employeeId);
@@ -558,7 +625,10 @@ app.patch("/api/employees/:id", requireAuth, (req, res) => {
       if (salary) next.wage = Number(salary);
     }
 
-    if (phone) next.phone = phone;
+    if (phone) {
+      if (!isPhone(phone)) return res.status(400).json({ error: "Enter a valid phone number." });
+      next.phone = phone;
+    }
     if (address) {
       next.address = address;
       next.location = address;
@@ -591,6 +661,7 @@ app.patch("/api/employees/:id", requireAuth, (req, res) => {
       db.prepare("UPDATE users SET email = ? WHERE employee_id = ?").run(next.email, employeeId);
       refreshSalary(employeeId, Number(next.wage));
     }
+    logActivity(req.user, "updated profile", "employee", employeeId, req.user.role === "admin" ? "Admin profile update" : "Employee self-service update");
     res.json({ employee: rowToEmployee(db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId)) });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -627,6 +698,7 @@ app.post("/api/attendance/check", requireAuth, (req, res) => {
   try {
   const employeeId = req.user.role === "employee" ? req.user.employeeId : req.body.employeeId;
   if (!employeeId) return res.status(400).json({ error: "Employee is required." });
+  if (!db.prepare("SELECT id FROM employees WHERE id = ?").get(employeeId)) return res.status(404).json({ error: "Employee not found." });
   const today = new Date().toISOString().slice(0, 10);
   const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
   const action = req.body.action === "out" ? "out" : "in";
@@ -634,6 +706,7 @@ app.post("/api/attendance/check", requireAuth, (req, res) => {
   if (action === "in") {
     if (existing?.check_in) return res.status(409).json({ error: "Already checked in for today." });
     db.prepare("INSERT INTO attendance (employee_id, work_date, check_in, status, note) VALUES (?, ?, ?, ?, ?)").run(employeeId, today, time, "Present", "Self check-in");
+    logActivity(req.user, "checked in", "attendance", employeeId, today);
     return res.json({ ok: true });
   }
   if (!existing?.check_in) return res.status(400).json({ error: "Check in before checking out." });
@@ -647,6 +720,7 @@ app.post("/api/attendance/check", requireAuth, (req, res) => {
     "Self check-out",
     existing.id
   );
+  logActivity(req.user, "checked out", "attendance", employeeId, today);
   res.json({ ok: true });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -654,23 +728,31 @@ app.post("/api/attendance/check", requireAuth, (req, res) => {
 });
 
 app.post("/api/attendance/manual", requireAuth, requireAdmin, (req, res) => {
-  const { employeeId, workDate, checkIn, checkOut, status, note } = req.body;
-  if (!employeeId || !workDate || !status) return res.status(400).json({ error: "Employee, date, and status are required." });
-  if (!["Present", "Absent", "Half-day", "Leave"].includes(status)) return res.status(400).json({ error: "Invalid attendance status." });
-  if (!db.prepare("SELECT id FROM employees WHERE id = ?").get(employeeId)) return res.status(404).json({ error: "Employee not found." });
-  const totals = attendanceTotals(checkIn, checkOut, status);
-  db.prepare(`
-    INSERT INTO attendance (employee_id, work_date, check_in, check_out, status, work_hours, extra_hours, note)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(employee_id, work_date) DO UPDATE SET
-      check_in = excluded.check_in,
-      check_out = excluded.check_out,
-      status = excluded.status,
-      work_hours = excluded.work_hours,
-      extra_hours = excluded.extra_hours,
-      note = excluded.note
-  `).run(employeeId, workDate, checkIn || null, checkOut || null, totals.status, totals.workHours, totals.extraHours, note || "Marked by HR");
-  res.json({ ok: true });
+  try {
+    const { employeeId, workDate, checkIn, checkOut, status, note } = req.body;
+    if (!employeeId || !workDate || !status) return res.status(400).json({ error: "Employee, date, and status are required." });
+    if (!isDate(workDate)) return res.status(400).json({ error: "Choose a valid attendance date." });
+    if (!attendanceStatuses.has(status)) return res.status(400).json({ error: "Invalid attendance status." });
+    if (!isTime(checkIn) || !isTime(checkOut)) return res.status(400).json({ error: "Use valid HH:MM attendance times." });
+    if (!["Absent", "Leave"].includes(status) && (!checkIn || !checkOut)) return res.status(400).json({ error: "Present and half-day records need check-in and check-out times." });
+    if (!db.prepare("SELECT id FROM employees WHERE id = ?").get(employeeId)) return res.status(404).json({ error: "Employee not found." });
+    const totals = attendanceTotals(checkIn, checkOut, status);
+    db.prepare(`
+      INSERT INTO attendance (employee_id, work_date, check_in, check_out, status, work_hours, extra_hours, note)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(employee_id, work_date) DO UPDATE SET
+        check_in = excluded.check_in,
+        check_out = excluded.check_out,
+        status = excluded.status,
+        work_hours = excluded.work_hours,
+        extra_hours = excluded.extra_hours,
+        note = excluded.note
+    `).run(employeeId, workDate, checkIn || null, checkOut || null, totals.status, totals.workHours, totals.extraHours, note || "Marked by HR");
+    logActivity(req.user, "marked attendance", "attendance", employeeId, `${workDate} / ${totals.status}`);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
 app.get("/api/leaves", requireAuth, (req, res) => {
@@ -696,8 +778,20 @@ app.post("/api/leaves", requireAuth, (req, res) => {
     return res.status(400).json({ error: "Employee, leave type, dates, and remarks are required." });
   }
   if (!["Paid", "Sick", "Unpaid"].includes(type)) return res.status(400).json({ error: "Invalid leave type." });
+  if (!isDate(startDate) || !isDate(endDate)) return res.status(400).json({ error: "Choose valid leave dates." });
+  if (!db.prepare("SELECT id FROM employees WHERE id = ?").get(employeeId)) return res.status(404).json({ error: "Employee not found." });
   const days = Math.floor((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
   if (days < 1) return res.status(400).json({ error: "End date cannot be before start date." });
+  const overlap = db.prepare(`
+    SELECT id FROM leave_requests
+    WHERE employee_id = ?
+      AND status IN ('Pending','Approved')
+      AND start_date <= ?
+      AND end_date >= ?
+    LIMIT 1
+  `).get(employeeId, endDate, startDate);
+  if (overlap) return res.status(409).json({ error: "A pending or approved leave request already overlaps these dates." });
+  if (type === "Sick" && !attachment) return res.status(400).json({ error: "Sick leave requires a certificate attachment." });
   const balance = leaveBalanceFor(employeeId).find((row) => row.type === type);
   if (type !== "Unpaid" && balance && days > balance.remaining) {
     return res.status(400).json({ error: `Only ${balance.remaining} ${type.toLowerCase()} leave days are available.` });
@@ -711,6 +805,7 @@ app.post("/api/leaves", requireAuth, (req, res) => {
     INSERT INTO leave_requests (employee_id, type, start_date, end_date, days, remarks, attachment_file_name, attachment_mime_type, attachment_url)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(employeeId, type, startDate, endDate, days, remarks, savedAttachment.fileName, savedAttachment.mimeType, savedAttachment.fileUrl);
+  logActivity(req.user, "submitted leave", "leave", employeeId, `${type} / ${startDate} to ${endDate}`);
   res.status(201).json({ ok: true });
 });
 
@@ -726,12 +821,14 @@ app.patch("/api/leaves/:id", requireAuth, requireAdmin, (req, res) => {
   }
   db.prepare("UPDATE leave_requests SET status = ?, admin_comment = ? WHERE id = ?").run(status, adminComment || "", req.params.id);
   if (status === "Approved") writeLeaveAttendance(leave);
+  logActivity(req.user, `${status.toLowerCase()} leave`, "leave", req.params.id, `${leave.employee_id} / ${leave.type}`);
   res.json({ ok: true });
 });
 
 app.get("/api/payroll", requireAuth, (req, res) => {
   const employeeId = req.user.role === "employee" ? req.user.employeeId : req.query.employeeId;
   const month = req.query.month || new Date().toISOString().slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: "Month must use YYYY-MM format." });
   const employees = employeeId
     ? db.prepare("SELECT * FROM employees WHERE id = ?").all(employeeId)
     : db.prepare("SELECT * FROM employees ORDER BY name").all();

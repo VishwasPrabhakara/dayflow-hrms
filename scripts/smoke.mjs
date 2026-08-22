@@ -48,6 +48,7 @@ try {
   requireArray("leave requests", await request("/api/leaves", { headers: authHeader }));
   requireArray("leave balances", await request("/api/leave-balances", { headers: authHeader }));
   requireArray("payroll", await request(`/api/payroll?month=${month}`, { headers: authHeader }));
+  requireArray("activity", await request("/api/activity", { headers: authHeader }));
 
   pass("Dayflow smoke test", "core API is ready for demo");
 } catch (error) {

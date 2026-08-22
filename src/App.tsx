@@ -106,6 +106,8 @@ type PayrollSlip = {
   unpaidDays: number;
   totalHours: number;
   extraHours: number;
+  dailyRate: number;
+  hourlyRate: number;
   extraPay: number;
   deduction: number;
   grossPay: number;
@@ -127,6 +129,17 @@ type EmployeeDocument = {
   status: "Pending" | "Approved" | "Rejected";
   admin_comment: string;
   uploaded_at: string;
+};
+
+type ActivityLog = {
+  id: number;
+  actor_role: string;
+  actor_email: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  detail: string;
+  created_at: string;
 };
 
 const navItems = [
@@ -172,6 +185,7 @@ function App() {
   const [payroll, setPayroll] = useState<PayrollSlip[]>([]);
   const [jobProfiles, setJobProfiles] = useState<JobProfile[]>([]);
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
+  const [activity, setActivity] = useState<ActivityLog[]>([]);
   const [credentials, setCredentials] = useState<EmployeeCredentials | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [notice, setNotice] = useState("");
@@ -192,7 +206,7 @@ function App() {
 
   async function loadWorkspace(authToken = token) {
     const headers = { Authorization: `Bearer ${authToken}` };
-    const [employeeRows, attendanceRows, leaveRows, leaveBalanceRows, payrollRows, jobProfileRows, documentRows] = await Promise.all([
+    const [employeeRows, attendanceRows, leaveRows, leaveBalanceRows, payrollRows, jobProfileRows, documentRows, activityRows] = await Promise.all([
       fetch("/api/employees", { headers }).then((r) => r.json()),
       fetch("/api/attendance", { headers }).then((r) => r.json()),
       fetch("/api/leaves", { headers }).then((r) => r.json()),
@@ -200,6 +214,7 @@ function App() {
       fetch("/api/payroll", { headers }).then((r) => r.json()),
       fetch("/api/job-profiles", { headers }).then((r) => r.json()),
       fetch("/api/documents", { headers }).then((r) => r.json()),
+      fetch("/api/activity", { headers }).then((r) => (r.ok ? r.json() : [])),
     ]);
     setEmployees(employeeRows);
     setAttendance(attendanceRows);
@@ -208,6 +223,7 @@ function App() {
     setPayroll(payrollRows);
     setJobProfiles(jobProfileRows);
     setDocuments(documentRows);
+    setActivity(activityRows);
     setSelectedEmployeeId((current) => current || employeeRows[0]?.id || "");
   }
 
@@ -228,6 +244,7 @@ function App() {
     setPayroll([]);
     setJobProfiles([]);
     setDocuments([]);
+    setActivity([]);
     setSelectedEmployeeId("");
     setNotice("");
   }
@@ -411,7 +428,7 @@ function App() {
           />
         )}
         {active === "payroll" && <PayrollView role={user.role} rows={payroll} employees={employees} employee={selectedEmployee} token={token} />}
-        {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} payroll={payroll} documents={documents} token={token} />}
+        {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} payroll={payroll} documents={documents} activity={activity} token={token} />}
       </section>
     </main>
   );
@@ -780,6 +797,13 @@ function EmployeesView({
   const selectedProfile = jobProfiles.find((profile) => profile.id === draft.jobProfileId) || jobProfiles[0];
   const managers = ["Nikhil Joshi", ...employees.map((employee) => employee.name)];
   const departments = ["All", ...Array.from(new Set(employees.map((employee) => employee.department)))];
+  const documentSummary = {
+    total: documents.length,
+    pending: documents.filter((document) => document.status === "Pending").length,
+    approved: documents.filter((document) => document.status === "Approved").length,
+    rejected: documents.filter((document) => document.status === "Rejected").length,
+    missingEmployees: employees.filter((employee) => !documents.some((document) => document.employee_id === employee.id)).length,
+  };
   const filteredEmployees = employees.filter((employee) => {
     const ownDocuments = documents.filter((document) => document.employee_id === employee.id);
     const approvedDocuments = ownDocuments.filter((document) => document.status === "Approved").length;
@@ -841,6 +865,12 @@ function EmployeesView({
             Employee ID <strong>{credentials.id}</strong> created. Temporary password and login link were sent by email.
           </div>
         )}
+        <section className="metrics mini document-metrics">
+          <Metric label="Documents" value={String(documentSummary.total)} />
+          <Metric label="Pending Review" value={String(documentSummary.pending)} />
+          <Metric label="Approved" value={String(documentSummary.approved)} />
+          <Metric label="Missing Docs" value={String(documentSummary.missingEmployees)} />
+        </section>
         {open && (
           <div className="form-grid">
             <label><span>name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
@@ -1025,8 +1055,8 @@ function DocumentPanel({
             {role === "admin" && document.status === "Pending" && onDecision && (
               <div className="inline-actions full">
                 <input placeholder="Approval comment" value={comments[document.id] || ""} onChange={(event) => setComments({ ...comments, [document.id]: event.target.value })} />
-                <button disabled={busyId === document.id} onClick={() => decide(document.id, "Approved")}><Check size={16} /></button>
-                <button disabled={busyId === document.id} onClick={() => decide(document.id, "Rejected")}><X size={16} /></button>
+                <button aria-label={`Approve ${document.type}`} title="Approve document" disabled={busyId === document.id} onClick={() => decide(document.id, "Approved")}><Check size={16} /></button>
+                <button aria-label={`Reject ${document.type}`} title="Reject document" disabled={busyId === document.id} onClick={() => decide(document.id, "Rejected")}><X size={16} /></button>
               </div>
             )}
           </article>
@@ -1310,8 +1340,8 @@ function LeavesView({
               {role === "admin" && row.status === "Pending" && (
                 <div className="inline-actions">
                   <input placeholder="Admin comment" value={comments[row.id] || ""} onChange={(e) => setComments({ ...comments, [row.id]: e.target.value })} />
-                  <button disabled={busyDecisionId === row.id} onClick={() => decide(row.id, "Approved")}><Check size={16} /></button>
-                  <button disabled={busyDecisionId === row.id} onClick={() => decide(row.id, "Rejected")}><X size={16} /></button>
+                  <button aria-label={`Approve ${row.name} leave`} title="Approve leave" disabled={busyDecisionId === row.id} onClick={() => decide(row.id, "Approved")}><Check size={16} /></button>
+                  <button aria-label={`Reject ${row.name} leave`} title="Reject leave" disabled={busyDecisionId === row.id} onClick={() => decide(row.id, "Rejected")}><X size={16} /></button>
                 </div>
               )}
             </article>
@@ -1606,8 +1636,11 @@ function PayrollView({
         ["Unpaid Days", selectedSlip.unpaidDays],
         ["Total Hours", selectedSlip.totalHours.toFixed(1)],
         ["Extra Hours", selectedSlip.extraHours.toFixed(1)],
+        ["Daily Rate", currency(selectedSlip.dailyRate || 0)],
+        ["Hourly Rate", currency(selectedSlip.hourlyRate || 0)],
         ["Extra Pay", currency(selectedSlip.extraPay)],
         ["Deductions", currency(selectedSlip.deduction)],
+        ["Gross Pay", currency(selectedSlip.grossPay)],
         ["Net Pay", currency(selectedSlip.netPay)],
       ]
     : [];
@@ -1644,7 +1677,7 @@ function PayrollView({
             </section>
             <DataTable
               headers={payrollHeaders}
-              rows={payrollRows.slice(2, 12)}
+              rows={payrollRows.slice(2)}
             />
           </>
         )}
@@ -1660,7 +1693,10 @@ function PayrollView({
         <DataTable
           headers={["Component", "Percent", "Amount"]}
           empty="No salary components found for this payslip."
-          rows={(selectedSlip?.components || []).map((row) => [row.label, `${row.percent}%`, currency(row.amount)])}
+          rows={[
+            ...(selectedSlip?.components || []).map((row) => [row.label, `${row.percent}%`, currency(row.amount)]),
+            ...(selectedSlip ? [["Component Total", "-", currency(selectedSlip.components.reduce((sum, row) => sum + row.amount, 0))]] : []),
+          ]}
         />
       </div>
     </section>
@@ -1673,6 +1709,7 @@ function ReportsView({
   leaves,
   payroll,
   documents,
+  activity,
   token,
 }: {
   employees: Employee[];
@@ -1680,6 +1717,7 @@ function ReportsView({
   leaves: LeaveRequest[];
   payroll: PayrollSlip[];
   documents: EmployeeDocument[];
+  activity: ActivityLog[];
   token: string;
 }) {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -1877,6 +1915,25 @@ function ReportsView({
                 `${approvedDocs}/${ownDocs.length} approved`,
               ];
             })}
+          />
+        </div>
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p>Audit trail</p>
+              <h2>Recent Activity</h2>
+            </div>
+          </div>
+          <DataTable
+            headers={["Time", "Actor", "Action", "Entity", "Detail"]}
+            empty="No activity has been recorded yet."
+            rows={activity.slice(0, 8).map((row) => [
+              new Date(row.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+              row.actor_email,
+              row.action,
+              `${row.entity_type} / ${row.entity_id}`,
+              row.detail || "-",
+            ])}
           />
         </div>
       </section>
