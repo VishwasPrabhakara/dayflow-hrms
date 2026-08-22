@@ -17,7 +17,18 @@ const documentTypes = new Set(["Profile Photo", "Resume", "ID Proof", "Bank Proo
 const leaveEntitlements = { Paid: 24, Sick: 7, Unpaid: 0 };
 const attendanceStatuses = new Set(["Present", "Absent", "Half-day", "Leave"]);
 
-app.use(cors({ origin: "http://127.0.0.1:5173" }));
+const allowedOrigins = new Set([
+  "http://127.0.0.1:5173",
+  "http://localhost:5173",
+  process.env.CLIENT_URL,
+].filter(Boolean));
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error(`Origin ${origin} is not allowed by CORS.`));
+  },
+}));
 app.use(express.json({ limit: "8mb" }));
 app.use("/uploads", express.static(join(__dirname, "..", "data", "uploads")));
 

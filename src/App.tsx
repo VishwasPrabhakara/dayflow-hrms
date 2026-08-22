@@ -152,6 +152,12 @@ const navItems = [
   ["reports", "Reports", BarChart3],
 ] as const;
 
+const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
+function apiUrl(path: string) {
+  return `${API_BASE_URL}${path}`;
+}
+
 function currency(value: number) {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -241,7 +247,7 @@ function App() {
   }
 
   async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(path, {
+    const response = await fetch(apiUrl(path), {
       ...init,
       headers: {
         "Content-Type": "application/json",
@@ -263,14 +269,14 @@ function App() {
   async function loadWorkspace(authToken = token) {
     const headers = { Authorization: `Bearer ${authToken}` };
     const [employeeRows, attendanceRows, leaveRows, leaveBalanceRows, payrollRows, jobProfileRows, documentRows, activityRows] = await Promise.all([
-      fetch("/api/employees", { headers }).then((r) => r.json()),
-      fetch("/api/attendance", { headers }).then((r) => r.json()),
-      fetch("/api/leaves", { headers }).then((r) => r.json()),
-      fetch("/api/leave-balances", { headers }).then((r) => r.json()),
-      fetch("/api/payroll", { headers }).then((r) => r.json()),
-      fetch("/api/job-profiles", { headers }).then((r) => r.json()),
-      fetch("/api/documents", { headers }).then((r) => r.json()),
-      fetch("/api/activity", { headers }).then((r) => (r.ok ? r.json() : [])),
+      fetch(apiUrl("/api/employees"), { headers }).then((r) => r.json()),
+      fetch(apiUrl("/api/attendance"), { headers }).then((r) => r.json()),
+      fetch(apiUrl("/api/leaves"), { headers }).then((r) => r.json()),
+      fetch(apiUrl("/api/leave-balances"), { headers }).then((r) => r.json()),
+      fetch(apiUrl("/api/payroll"), { headers }).then((r) => r.json()),
+      fetch(apiUrl("/api/job-profiles"), { headers }).then((r) => r.json()),
+      fetch(apiUrl("/api/documents"), { headers }).then((r) => r.json()),
+      fetch(apiUrl("/api/activity"), { headers }).then((r) => (r.ok ? r.json() : [])),
     ]);
     setEmployees(employeeRows);
     setAttendance(attendanceRows);
@@ -648,7 +654,7 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
     setError("");
     setBusy(true);
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier, password }),
@@ -670,7 +676,7 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
     }
     setBusy(true);
     try {
-      const response = await fetch("/api/auth/signup/request-otp", {
+      const response = await fetch(apiUrl("/api/auth/signup/request-otp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: "employee", employeeId, email: identifier, password }),
@@ -688,7 +694,7 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
     setError("");
     setBusy(true);
     try {
-      const response = await fetch("/api/auth/signup/verify", {
+      const response = await fetch(apiUrl("/api/auth/signup/verify"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ challengeId, otp }),
@@ -706,7 +712,7 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
     setError("");
     setBusy(true);
     try {
-      const response = await fetch("/api/auth/password/request-reset", {
+      const response = await fetch(apiUrl("/api/auth/password/request-reset"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier }),
@@ -728,7 +734,7 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
     }
     setBusy(true);
     try {
-      const response = await fetch("/api/auth/password/verify-reset", {
+      const response = await fetch(apiUrl("/api/auth/password/verify-reset"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ challengeId, otp, password }),
@@ -1872,7 +1878,7 @@ function PayrollView({
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/payroll?${query.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(apiUrl(`/api/payroll?${query.toString()}`), { headers: { Authorization: `Bearer ${token}` } });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error || "Unable to calculate payroll.");
       setSlips(payload);
@@ -1887,7 +1893,7 @@ function PayrollView({
     if (!selectedSlip) return;
     setError("");
     try {
-      const response = await fetch(`/api/payroll/${selectedSlip.employeeId}/pdf?month=${selectedSlip.month}`, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(apiUrl(`/api/payroll/${selectedSlip.employeeId}/pdf?month=${selectedSlip.month}`), { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.error || "Unable to export payslip PDF.");
@@ -2019,7 +2025,7 @@ function ReportsView({
       setLoadingPayroll(true);
       setError("");
       try {
-        const response = await fetch(`/api/payroll?month=${month}`, { headers: { Authorization: `Bearer ${token}` } });
+        const response = await fetch(apiUrl(`/api/payroll?month=${month}`), { headers: { Authorization: `Bearer ${token}` } });
         const payload = await response.json().catch(() => null);
         if (!response.ok) throw new Error(payload?.error || "Unable to calculate report payroll.");
         if (!cancelled) setReportPayroll(payload);
