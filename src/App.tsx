@@ -411,7 +411,7 @@ function App() {
           />
         )}
         {active === "payroll" && <PayrollView role={user.role} rows={payroll} employees={employees} employee={selectedEmployee} token={token} />}
-        {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} payroll={payroll} documents={documents} />}
+        {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} payroll={payroll} documents={documents} token={token} />}
       </section>
     </main>
   );
@@ -1673,15 +1673,48 @@ function ReportsView({
   leaves,
   payroll,
   documents,
+  token,
 }: {
   employees: Employee[];
   attendance: Attendance[];
   leaves: LeaveRequest[];
   payroll: PayrollSlip[];
   documents: EmployeeDocument[];
+  token: string;
 }) {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [reportPayroll, setReportPayroll] = useState(payroll);
+  const [loadingPayroll, setLoadingPayroll] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadReportPayroll() {
+      setLoadingPayroll(true);
+      setError("");
+      try {
+        const response = await fetch(`/api/payroll?month=${month}`, { headers: { Authorization: `Bearer ${token}` } });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(payload?.error || "Unable to calculate report payroll.");
+        if (!cancelled) setReportPayroll(payload);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Unable to calculate report payroll.");
+      } finally {
+        if (!cancelled) setLoadingPayroll(false);
+      }
+    }
+    loadReportPayroll();
+    return () => {
+      cancelled = true;
+    };
+  }, [month, token]);
+
+  useEffect(() => {
+    setReportPayroll(payroll);
+  }, [payroll]);
+
   const monthAttendance = attendance.filter((row) => row.work_date.startsWith(month));
+  const monthLeaves = leaves.filter((row) => leaveTouchesMonth(row, month));
   const attendanceCounts = {
     Present: monthAttendance.filter((row) => row.status === "Present").length,
     "Half-day": monthAttendance.filter((row) => row.status === "Half-day").length,
@@ -1689,14 +1722,14 @@ function ReportsView({
     Absent: monthAttendance.filter((row) => row.status === "Absent").length,
   };
   const leaveCounts = {
-    Pending: leaves.filter((row) => row.status === "Pending").length,
-    Approved: leaves.filter((row) => row.status === "Approved").length,
-    Rejected: leaves.filter((row) => row.status === "Rejected").length,
-    Paid: leaves.filter((row) => row.type === "Paid").reduce((sum, row) => sum + row.days, 0),
-    Sick: leaves.filter((row) => row.type === "Sick").reduce((sum, row) => sum + row.days, 0),
-    Unpaid: leaves.filter((row) => row.type === "Unpaid").reduce((sum, row) => sum + row.days, 0),
+    Pending: monthLeaves.filter((row) => row.status === "Pending").length,
+    Approved: monthLeaves.filter((row) => row.status === "Approved").length,
+    Rejected: monthLeaves.filter((row) => row.status === "Rejected").length,
+    Paid: monthLeaves.filter((row) => row.type === "Paid").reduce((sum, row) => sum + row.days, 0),
+    Sick: monthLeaves.filter((row) => row.type === "Sick").reduce((sum, row) => sum + row.days, 0),
+    Unpaid: monthLeaves.filter((row) => row.type === "Unpaid").reduce((sum, row) => sum + row.days, 0),
   };
-  const payrollSummary = payroll.reduce(
+  const payrollSummary = reportPayroll.reduce(
     (acc, slip) => ({
       gross: acc.gross + slip.grossPay,
       deductions: acc.deductions + slip.deduction,
@@ -1704,8 +1737,8 @@ function ReportsView({
     }),
     { gross: 0, deductions: 0, net: 0 }
   );
-  const topPayroll = payroll.reduce<PayrollSlip | null>((top, slip) => (!top || slip.netPay > top.netPay ? slip : top), null);
-  const lowestPayroll = payroll.reduce<PayrollSlip | null>((low, slip) => (!low || slip.netPay < low.netPay ? slip : low), null);
+  const topPayroll = reportPayroll.reduce<PayrollSlip | null>((top, slip) => (!top || slip.netPay > top.netPay ? slip : top), null);
+  const lowestPayroll = reportPayroll.reduce<PayrollSlip | null>((low, slip) => (!low || slip.netPay < low.netPay ? slip : low), null);
   const documentCounts = {
     Approved: documents.filter((document) => document.status === "Approved").length,
     Pending: documents.filter((document) => document.status === "Pending").length,
@@ -1746,14 +1779,16 @@ function ReportsView({
             <h2>Executive Report</h2>
           </div>
           <div className="report-tools">
+            {loadingPayroll && <span className="status-pill">Calculating</span>}
             <button className="ghost small" disabled={employees.length === 0} onClick={() => exportCsv(`dayflow-executive-report-${month}.csv`, ["Metric", "Value"], reportRows)}>
               <Download size={16} /> Export
             </button>
             <div className="filter-bar compact-filter">
-            <label><span>Month</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+              <label><span>Month</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
             </div>
           </div>
         </div>
+        {error && <div className="error">{error}</div>}
         <section className="metrics mini">
           <Metric label="Employees" value={String(employees.length)} />
           <Metric label="Activated" value={`${activated}/${employees.length}`} />
@@ -1847,6 +1882,17 @@ function ReportsView({
       </section>
     </section>
   );
+}
+
+function leaveTouchesMonth(row: LeaveRequest, month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const monthStart = new Date(Date.UTC(year, monthNumber - 1, 1)).getTime();
+  const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).getTime();
+  const [startYear, startMonth, startDay] = row.start_date.split("-").map(Number);
+  const [endYear, endMonth, endDay] = row.end_date.split("-").map(Number);
+  const leaveStart = new Date(Date.UTC(startYear, startMonth - 1, startDay)).getTime();
+  const leaveEnd = new Date(Date.UTC(endYear, endMonth - 1, endDay)).getTime();
+  return leaveStart <= monthEnd && leaveEnd >= monthStart;
 }
 
 function BarList({ rows }: { rows: { label: string; value: number; max: number }[] }) {
