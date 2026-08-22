@@ -16,6 +16,20 @@ Build the Pages frontend against a hosted backend:
 VITE_API_BASE_URL=https://your-backend-host.example.com npm run build:pages
 ```
 
+Backend deployment is configured for Render using `render.yaml` and `Dockerfile`.
+Set these Render environment variables:
+
+```env
+CLIENT_URL=https://vishwasprabhakara.github.io
+DATA_DIR=/data
+HOST=0.0.0.0
+GMAIL_USER=your-gmail-address@gmail.com
+GMAIL_APP_PASSWORD=your-gmail-app-password
+GMAIL_FROM=your-gmail-address@gmail.com
+PUBLIC_API_URL=https://your-render-service.onrender.com
+ALLOW_DEV_OTP=false
+```
+
 For local full-stack evaluation, run:
 
 ```bash

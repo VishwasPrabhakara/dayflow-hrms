@@ -36,7 +36,8 @@ app.use("/uploads", express.static(join(__dirname, "..", "data", "uploads")));
 function publicUrl(path) {
   if (!path) return "";
   if (/^https?:\/\//.test(path)) return path;
-  const port = Number(process.env.API_PORT || 4000);
+  if (process.env.PUBLIC_API_URL) return `${process.env.PUBLIC_API_URL.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
+  const port = Number(process.env.PORT || process.env.API_PORT || 4000);
   return `http://127.0.0.1:${port}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
@@ -878,7 +879,8 @@ app.get("/api/payroll/:employeeId/pdf", requireAuth, (req, res) => {
   res.send(pdf);
 });
 
-const port = Number(process.env.API_PORT || 4000);
-app.listen(port, "127.0.0.1", () => {
-  console.log(`Dayflow API running at http://127.0.0.1:${port}`);
+const port = Number(process.env.PORT || process.env.API_PORT || 4000);
+const host = process.env.HOST || "0.0.0.0";
+app.listen(port, host, () => {
+  console.log(`Dayflow API running at http://${host}:${port}`);
 });

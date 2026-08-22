@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: dayflow-hrms-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    disk:
+      name: dayflow-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: HOST
+        value: 0.0.0.0
+      - key: CLIENT_URL
+        value: https://vishwasprabhakara.github.io
+      - key: ALLOW_DEV_OTP
+        value: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: GMAIL_FROM
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false

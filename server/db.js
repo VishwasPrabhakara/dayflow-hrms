@@ -5,11 +5,12 @@ import { DatabaseSync } from "node:sqlite";
 import { hashPassword } from "./crypto.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-mkdirSync(join(__dirname, "..", "data"), { recursive: true });
-mkdirSync(join(__dirname, "..", "data", "uploads"), { recursive: true });
+const dataDir = process.env.DATA_DIR || join(__dirname, "..", "data");
+mkdirSync(dataDir, { recursive: true });
+mkdirSync(join(dataDir, "uploads"), { recursive: true });
 
-export const db = new DatabaseSync(join(__dirname, "..", "data", "dayflow.sqlite"));
-export const uploadsDir = join(__dirname, "..", "data", "uploads");
+export const db = new DatabaseSync(join(dataDir, "dayflow.sqlite"));
+export const uploadsDir = join(dataDir, "uploads");
 
 db.exec(`
   PRAGMA foreign_keys = ON;
