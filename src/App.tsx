@@ -731,9 +731,11 @@ function EmployeesView({
   documents: EmployeeDocument[];
   onCreate: (input: EmployeeForm) => Promise<void>;
   onSelect: (employeeId: string) => void;
-  onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => void;
+  onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const [draft, setDraft] = useState({
     name: "",
     email: "",
@@ -745,7 +747,6 @@ function EmployeesView({
     salary: "50000",
   });
   const [uploads, setUploads] = useState<Record<string, UploadFile | null>>({});
-  const [comment, setComment] = useState("");
   const selectedProfile = jobProfiles.find((profile) => profile.id === draft.jobProfileId) || jobProfiles[0];
   const managers = ["Nikhil Joshi", ...employees.map((employee) => employee.name)];
 
@@ -754,13 +755,21 @@ function EmployeesView({
   }, [draft.jobProfileId, jobProfiles]);
 
   async function submit() {
-    await onCreate({
-      ...draft,
-      salary: Number(draft.salary),
-      documents: Object.values(uploads).filter(Boolean) as UploadFile[],
-    });
-    setOpen(false);
-    setUploads({});
+    setError("");
+    setBusy(true);
+    try {
+      await onCreate({
+        ...draft,
+        salary: Number(draft.salary),
+        documents: Object.values(uploads).filter(Boolean) as UploadFile[],
+      });
+      setOpen(false);
+      setUploads({});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create employee account.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -800,10 +809,12 @@ function EmployeesView({
             <FileInput type="Bank Proof" accept=".pdf,image/*" onPick={(file) => setUploads({ ...uploads, "Bank Proof": file })} />
             <FileInput type="Offer Letter" accept=".pdf,.doc,.docx" onPick={(file) => setUploads({ ...uploads, "Offer Letter": file })} />
             <FileInput type="Education Certificate" accept=".pdf,image/*" onPick={(file) => setUploads({ ...uploads, "Education Certificate": file })} />
-            <button className="primary" onClick={submit}>Create Employee Account</button>
+            {error && <div className="error wide">{error}</div>}
+            <button className="primary" disabled={busy} onClick={submit}>{busy ? "Creating..." : "Create Employee Account"}</button>
           </div>
         )}
         <div className="cards">
+          {employees.length === 0 && <div className="empty">No employees added yet. Create the first employee account to start onboarding.</div>}
           {employees.map((employee) => (
             <button className="employee-card" key={employee.id} onClick={() => onSelect(employee.id)}>
               {employee.profilePhotoUrl ? <img className="avatar photo" src={employee.profilePhotoUrl} alt="" /> : <div className="avatar">{employee.avatar}</div>}
@@ -814,7 +825,7 @@ function EmployeesView({
           ))}
         </div>
       </div>
-      <DocumentPanel documents={documents} role="admin" onDecision={onDocumentDecision} comment={comment} onComment={setComment} />
+      <DocumentPanel documents={documents} role="admin" onDecision={onDocumentDecision} />
     </section>
   );
 }
@@ -862,15 +873,29 @@ function DocumentPanel({
   documents,
   role,
   onDecision,
-  comment,
-  onComment,
 }: {
   documents: EmployeeDocument[];
   role: Role;
-  onDecision?: (id: number, status: "Approved" | "Rejected", comment: string) => void;
-  comment?: string;
-  onComment?: (comment: string) => void;
+  onDecision?: (id: number, status: "Approved" | "Rejected", comment: string) => Promise<void>;
 }) {
+  const [comments, setComments] = useState<Record<number, string>>({});
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  async function decide(id: number, status: "Approved" | "Rejected") {
+    if (!onDecision) return;
+    setError("");
+    setBusyId(id);
+    try {
+      await onDecision(id, status, comments[id] || "");
+      setComments((current) => ({ ...current, [id]: "" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update document status.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="panel">
       <div className="panel-head">
@@ -880,6 +905,7 @@ function DocumentPanel({
         </div>
       </div>
       <div className="request-list">
+        {error && <div className="error">{error}</div>}
         {documents.length === 0 && <div className="empty">No documents uploaded yet.</div>}
         {documents.map((document) => (
           <article className="request document-row" key={document.id}>
@@ -890,9 +916,9 @@ function DocumentPanel({
             <a href={document.file_url} target="_blank" rel="noreferrer">Open</a>
             {role === "admin" && document.status === "Pending" && onDecision && (
               <div className="inline-actions full">
-                <input placeholder="Approval comment" value={comment || ""} onChange={(event) => onComment?.(event.target.value)} />
-                <button onClick={() => onDecision(document.id, "Approved", comment || "")}><Check size={16} /></button>
-                <button onClick={() => onDecision(document.id, "Rejected", comment || "")}><X size={16} /></button>
+                <input placeholder="Approval comment" value={comments[document.id] || ""} onChange={(event) => setComments({ ...comments, [document.id]: event.target.value })} />
+                <button disabled={busyId === document.id} onClick={() => decide(document.id, "Approved")}><Check size={16} /></button>
+                <button disabled={busyId === document.id} onClick={() => decide(document.id, "Rejected")}><X size={16} /></button>
               </div>
             )}
           </article>
@@ -921,12 +947,14 @@ function AttendanceView({
   role: Role;
   employees: Employee[];
   rows: Attendance[];
-  onCheck: (employeeId?: string, action?: "in" | "out") => void;
-  onManual: (input: ManualAttendanceForm) => void;
+  onCheck: (employeeId?: string, action?: "in" | "out") => Promise<void>;
+  onManual: (input: ManualAttendanceForm) => Promise<void>;
 }) {
   const [employeeId, setEmployeeId] = useState(employees[0]?.id || "");
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [status, setStatus] = useState("All");
+  const [busyAction, setBusyAction] = useState<"in" | "out" | "manual" | "">("");
+  const [error, setError] = useState("");
   const [draft, setDraft] = useState<ManualAttendanceForm>({
     employeeId: employees[0]?.id || "",
     workDate: new Date().toISOString().slice(0, 10),
@@ -957,6 +985,30 @@ function AttendanceView({
     { Present: 0, "Half-day": 0, Absent: 0, Leave: 0, totalHours: 0, extraHours: 0 }
   );
 
+  async function runCheck(action: "in" | "out") {
+    setError("");
+    setBusyAction(action);
+    try {
+      await onCheck(role === "admin" ? employeeId : undefined, action);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update attendance.");
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function saveManual() {
+    setError("");
+    setBusyAction("manual");
+    try {
+      await onManual(draft);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save attendance.");
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   return (
     <section className="grid-two">
       <div className="panel">
@@ -971,10 +1023,11 @@ function AttendanceView({
                 {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
               </select>
             )}
-            <button className="primary small" onClick={() => onCheck(role === "admin" ? employeeId : undefined, "in")}>Check In</button>
-            <button className="primary small" onClick={() => onCheck(role === "admin" ? employeeId : undefined, "out")}>Check Out</button>
+            <button className="primary small" disabled={Boolean(busyAction)} onClick={() => runCheck("in")}>{busyAction === "in" ? "Checking..." : "Check In"}</button>
+            <button className="primary small" disabled={Boolean(busyAction)} onClick={() => runCheck("out")}>{busyAction === "out" ? "Checking..." : "Check Out"}</button>
           </div>
         </div>
+        {error && <div className="error">{error}</div>}
         <div className="filter-bar">
           {role === "admin" && (
             <label><span>Employee</span><select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
@@ -990,6 +1043,7 @@ function AttendanceView({
         </section>
         <DataTable
           headers={["Employee", "Date", "Check In", "Check Out", "Status", "Hours", "Extra"]}
+          empty="No attendance records match the selected filters."
           rows={filteredRows.map((row) => [row.name, row.work_date, row.check_in || "-", row.check_out || "-", row.status, Number(row.work_hours || 0).toFixed(1), Number(row.extra_hours || 0).toFixed(1)])}
         />
       </div>
@@ -1008,7 +1062,7 @@ function AttendanceView({
             <label><span>check out</span><input type="time" value={draft.checkOut} onChange={(event) => setDraft({ ...draft, checkOut: event.target.value })} /></label>
             <label><span>status</span><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as ManualAttendanceForm["status"] })}><option>Present</option><option>Half-day</option><option>Absent</option><option>Leave</option></select></label>
             <label><span>note</span><input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} /></label>
-            <button className="primary" onClick={() => onManual(draft)}>Save Attendance</button>
+            <button className="primary" disabled={Boolean(busyAction)} onClick={saveManual}>{busyAction === "manual" ? "Saving..." : "Save Attendance"}</button>
           </div>
         </div>
       )}
@@ -1030,8 +1084,8 @@ function LeavesView({
   employees: Employee[];
   rows: LeaveRequest[];
   balances: LeaveBalance[];
-  onCreate: (input: LeaveForm) => void;
-  onDecision: (id: number, status: "Approved" | "Rejected", comment: string) => void;
+  onCreate: (input: LeaveForm) => Promise<void>;
+  onDecision: (id: number, status: "Approved" | "Rejected", comment: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState({
     employeeId: employees[0]?.id || "",
@@ -1041,7 +1095,10 @@ function LeavesView({
     remarks: "",
   });
   const [attachment, setAttachment] = useState<UploadFile | undefined>();
-  const [comment, setComment] = useState("");
+  const [comments, setComments] = useState<Record<number, string>>({});
+  const [busySubmit, setBusySubmit] = useState(false);
+  const [busyDecisionId, setBusyDecisionId] = useState<number | null>(null);
+  const [error, setError] = useState("");
   const days = Math.max(0, Math.floor((new Date(draft.endDate).getTime() - new Date(draft.startDate).getTime()) / 86400000) + 1);
   const activeEmployeeId = role === "admin" ? draft.employeeId : rows[0]?.employee_id || employees[0]?.id || "";
   const activeBalances = balances.filter((balance) => balance.employeeId === activeEmployeeId);
@@ -1050,6 +1107,33 @@ function LeavesView({
   useEffect(() => {
     if (!draft.employeeId && employees[0]) setDraft((current) => ({ ...current, employeeId: employees[0].id }));
   }, [draft.employeeId, employees]);
+
+  async function submitLeave() {
+    setError("");
+    setBusySubmit(true);
+    try {
+      await onCreate({ ...draft, attachment });
+      setDraft((current) => ({ ...current, remarks: "" }));
+      setAttachment(undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to submit leave request.");
+    } finally {
+      setBusySubmit(false);
+    }
+  }
+
+  async function decide(id: number, status: "Approved" | "Rejected") {
+    setError("");
+    setBusyDecisionId(id);
+    try {
+      await onDecision(id, status, comments[id] || "");
+      setComments((current) => ({ ...current, [id]: "" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update leave request.");
+    } finally {
+      setBusyDecisionId(null);
+    }
+  }
 
   return (
     <section className="grid-two">
@@ -1068,7 +1152,9 @@ function LeavesView({
               value={balance.type === "Unpaid" ? `${balance.approved} used` : `${balance.remaining}/${balance.entitlement}`}
             />
           ))}
+          {activeBalances.length === 0 && <div className="empty">Leave balances will appear after an employee is selected.</div>}
         </section>
+        {error && <div className="error">{error}</div>}
         <div className="form-grid compact">
           {role === "admin" && (
             <label><span>employee</span><select value={draft.employeeId} onChange={(e) => setDraft({ ...draft, employeeId: e.target.value })}>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
@@ -1079,7 +1165,7 @@ function LeavesView({
           <div className="selection-summary"><strong>{days} day{days === 1 ? "" : "s"} requested</strong></div>
           <label><span>remarks</span><input value={draft.remarks} onChange={(e) => setDraft({ ...draft, remarks: e.target.value })} /></label>
           {draft.type === "Sick" && <FileInput type="Sick Certificate" accept=".pdf,image/*" onPick={(file) => setAttachment({ ...file, type: "Sick Certificate" })} />}
-          <button className="primary" onClick={() => onCreate({ ...draft, attachment })}>Submit Leave Request</button>
+          <button className="primary" disabled={busySubmit} onClick={submitLeave}>{busySubmit ? "Submitting..." : "Submit Leave Request"}</button>
         </div>
       </div>
       <div className="panel">
@@ -1090,6 +1176,7 @@ function LeavesView({
           </div>
         </div>
         <div className="request-list">
+          {rows.length === 0 && <div className="empty">No leave requests yet.</div>}
           {rows.map((row) => (
             <article className="request" key={row.id}>
               <strong>{row.name} / {row.type}</strong>
@@ -1099,9 +1186,9 @@ function LeavesView({
               {row.admin_comment && <p>Admin comment: {row.admin_comment}</p>}
               {role === "admin" && row.status === "Pending" && (
                 <div className="inline-actions">
-                  <input placeholder="Admin comment" value={comment} onChange={(e) => setComment(e.target.value)} />
-                  <button onClick={() => onDecision(row.id, "Approved", comment)}><Check size={16} /></button>
-                  <button onClick={() => onDecision(row.id, "Rejected", comment)}><X size={16} /></button>
+                  <input placeholder="Admin comment" value={comments[row.id] || ""} onChange={(e) => setComments({ ...comments, [row.id]: e.target.value })} />
+                  <button disabled={busyDecisionId === row.id} onClick={() => decide(row.id, "Approved")}><Check size={16} /></button>
+                  <button disabled={busyDecisionId === row.id} onClick={() => decide(row.id, "Rejected")}><X size={16} /></button>
                 </div>
               )}
             </article>
@@ -1127,9 +1214,8 @@ function ProfileView({
   jobProfiles: JobProfile[];
   documents: EmployeeDocument[];
   onUpdate: (employeeId: string, input: EmployeeUpdateForm) => Promise<void>;
-  onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => void;
+  onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => Promise<void>;
 }) {
-  const [comment, setComment] = useState("");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -1260,7 +1346,7 @@ function ProfileView({
         <p><FileText size={16} /> Resume, bank proof, identity documents, offer letter, and certificates</p>
         <div className="tags">{employee.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
       </div>
-      <DocumentPanel documents={ownDocuments} role={role} onDecision={onDocumentDecision} comment={comment} onComment={setComment} />
+      <DocumentPanel documents={ownDocuments} role={role} onDecision={onDocumentDecision} />
     </section>
   );
 }
@@ -1281,6 +1367,8 @@ function PayrollView({
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [employeeId, setEmployeeId] = useState(employee?.id || "");
   const [slips, setSlips] = useState(rows);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     setSlips(rows);
@@ -1290,8 +1378,18 @@ function PayrollView({
   async function recalculate(nextMonth = month, nextEmployeeId = employeeId) {
     const query = new URLSearchParams({ month: nextMonth });
     if (role === "admin" && nextEmployeeId) query.set("employeeId", nextEmployeeId);
-    const response = await fetch(`/api/payroll?${query.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
-    setSlips(await response.json());
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/payroll?${query.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Unable to calculate payroll.");
+      setSlips(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to calculate payroll.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   const selectedSlip = role === "admin"
@@ -1306,7 +1404,9 @@ function PayrollView({
             <p>{role === "admin" ? "Attendance-linked payroll" : "Read only employee payslip"}</p>
             <h2>{selectedSlip ? `${selectedSlip.name} Payslip` : "Payroll"}</h2>
           </div>
+          {loading && <span className="status-pill">Calculating</span>}
         </div>
+        {error && <div className="error">{error}</div>}
         <div className="filter-bar">
           {role === "admin" && (
             <label><span>Employee</span><select value={employeeId} onChange={(event) => { setEmployeeId(event.target.value); recalculate(month, event.target.value); }}>{employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -1338,6 +1438,7 @@ function PayrollView({
             />
           </>
         )}
+        {!selectedSlip && <div className="empty">No payroll data is available for this selection.</div>}
       </div>
       <div className="panel">
         <div className="panel-head">
@@ -1348,6 +1449,7 @@ function PayrollView({
         </div>
         <DataTable
           headers={["Component", "Percent", "Amount"]}
+          empty="No salary components found for this payslip."
           rows={(selectedSlip?.components || []).map((row) => [row.label, `${row.percent}%`, currency(row.amount)])}
         />
       </div>
@@ -1421,6 +1523,7 @@ function ReportsView({
           <Metric label="Net Payroll" value={currency(payrollSummary.net)} />
           <Metric label="Open Items" value={String(leaveCounts.Pending + documentCounts.Pending)} />
         </section>
+        {employees.length === 0 && <div className="empty">Reports will populate after employee accounts, attendance, leave, and payroll records are created.</div>}
       </div>
       <section className="grid-two">
         <div className="panel">
@@ -1492,6 +1595,7 @@ function ReportsView({
           </section>
           <DataTable
             headers={["Employee", "Account", "Documents"]}
+            empty="No employee onboarding records yet."
             rows={employees.map((employee) => {
               const ownDocs = documents.filter((document) => document.employee_id === employee.id);
               const approvedDocs = ownDocs.filter((document) => document.status === "Approved").length;
@@ -1522,7 +1626,9 @@ function BarList({ rows }: { rows: { label: string; value: number; max: number }
   );
 }
 
-function DataTable({ headers, rows }: { headers: string[]; rows: (string | number)[][] }) {
+function DataTable({ headers, rows, empty = "No records to show." }: { headers: string[]; rows: (string | number)[][]; empty?: string }) {
+  if (rows.length === 0) return <div className="empty">{empty}</div>;
+
   return (
     <div className="table-wrap">
       <table>
