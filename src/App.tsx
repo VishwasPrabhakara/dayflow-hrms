@@ -5,6 +5,7 @@ import {
   Check,
   Clock3,
   CreditCard,
+  Download,
   FileText,
   Fingerprint,
   LogOut,
@@ -143,6 +144,21 @@ function currency(value: number) {
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function exportCsv(fileName: string, headers: string[], rows: (string | number)[][]) {
+  const escape = (value: string | number) => {
+    const text = String(value ?? "");
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function App() {
@@ -984,6 +1000,17 @@ function AttendanceView({
     },
     { Present: 0, "Half-day": 0, Absent: 0, Leave: 0, totalHours: 0, extraHours: 0 }
   );
+  const attendanceHeaders = ["Employee", "Date", "Check In", "Check Out", "Status", "Hours", "Extra", "Note"];
+  const attendanceRows = filteredRows.map((row) => [
+    row.name,
+    row.work_date,
+    row.check_in || "-",
+    row.check_out || "-",
+    row.status,
+    Number(row.work_hours || 0).toFixed(1),
+    Number(row.extra_hours || 0).toFixed(1),
+    row.note || "-",
+  ]);
 
   async function runCheck(action: "in" | "out") {
     setError("");
@@ -1025,6 +1052,7 @@ function AttendanceView({
             )}
             <button className="primary small" disabled={Boolean(busyAction)} onClick={() => runCheck("in")}>{busyAction === "in" ? "Checking..." : "Check In"}</button>
             <button className="primary small" disabled={Boolean(busyAction)} onClick={() => runCheck("out")}>{busyAction === "out" ? "Checking..." : "Check Out"}</button>
+            <button className="ghost small" disabled={filteredRows.length === 0} onClick={() => exportCsv(`dayflow-attendance-${month || "all"}.csv`, attendanceHeaders, attendanceRows)}><Download size={16} /> Export</button>
           </div>
         </div>
         {error && <div className="error">{error}</div>}
@@ -1042,9 +1070,9 @@ function AttendanceView({
           <Metric label="Hours / Extra" value={`${summary.totalHours.toFixed(1)} / ${summary.extraHours.toFixed(1)}`} />
         </section>
         <DataTable
-          headers={["Employee", "Date", "Check In", "Check Out", "Status", "Hours", "Extra"]}
+          headers={attendanceHeaders.slice(0, 7)}
           empty="No attendance records match the selected filters."
-          rows={filteredRows.map((row) => [row.name, row.work_date, row.check_in || "-", row.check_out || "-", row.status, Number(row.work_hours || 0).toFixed(1), Number(row.extra_hours || 0).toFixed(1)])}
+          rows={attendanceRows.map((row) => row.slice(0, 7))}
         />
       </div>
       {role === "admin" && (
@@ -1395,6 +1423,26 @@ function PayrollView({
   const selectedSlip = role === "admin"
     ? slips.find((slip) => slip.employeeId === employeeId) || slips[0]
     : slips[0];
+  const payrollHeaders = ["Metric", "Value"];
+  const payrollRows = selectedSlip
+    ? [
+        ["Employee", selectedSlip.name],
+        ["Month", selectedSlip.month],
+        ["Monthly Salary", currency(selectedSlip.salary)],
+        ["Working Days", selectedSlip.workingDays],
+        ["Present Days", selectedSlip.presentDays],
+        ["Leave Days", selectedSlip.leaveDays],
+        ["Half Days", selectedSlip.halfDays],
+        ["Absent Days", selectedSlip.absentDays],
+        ["Payable Days", selectedSlip.payableDays],
+        ["Unpaid Days", selectedSlip.unpaidDays],
+        ["Total Hours", selectedSlip.totalHours.toFixed(1)],
+        ["Extra Hours", selectedSlip.extraHours.toFixed(1)],
+        ["Extra Pay", currency(selectedSlip.extraPay)],
+        ["Deductions", currency(selectedSlip.deduction)],
+        ["Net Pay", currency(selectedSlip.netPay)],
+      ]
+    : [];
 
   return (
     <section className="grid-two">
@@ -1404,7 +1452,12 @@ function PayrollView({
             <p>{role === "admin" ? "Attendance-linked payroll" : "Read only employee payslip"}</p>
             <h2>{selectedSlip ? `${selectedSlip.name} Payslip` : "Payroll"}</h2>
           </div>
-          {loading && <span className="status-pill">Calculating</span>}
+          <div className="inline-actions">
+            {loading && <span className="status-pill">Calculating</span>}
+            <button className="ghost small" disabled={!selectedSlip} onClick={() => selectedSlip && exportCsv(`dayflow-payroll-${selectedSlip.employeeId}-${selectedSlip.month}.csv`, payrollHeaders, payrollRows)}>
+              <Download size={16} /> Export
+            </button>
+          </div>
         </div>
         {error && <div className="error">{error}</div>}
         <div className="filter-bar">
@@ -1422,19 +1475,8 @@ function PayrollView({
               <Metric label="Net Pay" value={currency(selectedSlip.netPay)} />
             </section>
             <DataTable
-              headers={["Metric", "Value"]}
-              rows={[
-                ["Monthly Salary", currency(selectedSlip.salary)],
-                ["Working Days", selectedSlip.workingDays],
-                ["Present Days", selectedSlip.presentDays],
-                ["Leave Days", selectedSlip.leaveDays],
-                ["Half Days", selectedSlip.halfDays],
-                ["Absent Days", selectedSlip.absentDays],
-                ["Payable Days", selectedSlip.payableDays],
-                ["Unpaid Days", selectedSlip.unpaidDays],
-                ["Total Hours", selectedSlip.totalHours.toFixed(1)],
-                ["Extra Hours", selectedSlip.extraHours.toFixed(1)],
-              ]}
+              headers={payrollHeaders}
+              rows={payrollRows.slice(2, 12)}
             />
           </>
         )}
@@ -1504,6 +1546,28 @@ function ReportsView({
   const activated = employees.filter((employee) => employee.accountVerified && !employee.mustChangePassword).length;
   const maxAttendance = Math.max(1, ...Object.values(attendanceCounts));
   const maxLeave = Math.max(1, leaveCounts.Paid, leaveCounts.Sick, leaveCounts.Unpaid);
+  const reportRows = [
+    ["Month", month],
+    ["Employees", employees.length],
+    ["Activated Accounts", activated],
+    ["Pending Accounts", employees.length - activated],
+    ["Present Attendance Rows", attendanceCounts.Present],
+    ["Half-day Attendance Rows", attendanceCounts["Half-day"]],
+    ["Leave Attendance Rows", attendanceCounts.Leave],
+    ["Absent Attendance Rows", attendanceCounts.Absent],
+    ["Pending Leave Requests", leaveCounts.Pending],
+    ["Approved Leave Requests", leaveCounts.Approved],
+    ["Rejected Leave Requests", leaveCounts.Rejected],
+    ["Paid Leave Days", leaveCounts.Paid],
+    ["Sick Leave Days", leaveCounts.Sick],
+    ["Unpaid Leave Days", leaveCounts.Unpaid],
+    ["Gross Payroll", currency(payrollSummary.gross)],
+    ["Payroll Deductions", currency(payrollSummary.deductions)],
+    ["Net Payroll", currency(payrollSummary.net)],
+    ["Pending Documents", documentCounts.Pending],
+    ["Approved Documents", documentCounts.Approved],
+    ["Rejected Documents", documentCounts.Rejected],
+  ];
 
   return (
     <section className="reports">
@@ -1513,8 +1577,13 @@ function ReportsView({
             <p>Monthly overview</p>
             <h2>Executive Report</h2>
           </div>
-          <div className="filter-bar compact-filter">
+          <div className="report-tools">
+            <button className="ghost small" disabled={employees.length === 0} onClick={() => exportCsv(`dayflow-executive-report-${month}.csv`, ["Metric", "Value"], reportRows)}>
+              <Download size={16} /> Export
+            </button>
+            <div className="filter-bar compact-filter">
             <label><span>Month</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+            </div>
           </div>
         </div>
         <section className="metrics mini">

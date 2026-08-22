@@ -228,6 +228,22 @@ button:disabled {
   min-height: 38px;
 }
 
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(19, 102, 91, 0.22);
+  background: #fff;
+  color: #13665b;
+  font-weight: 900;
+}
+
+.ghost:hover:not(:disabled) {
+  border-color: rgba(19, 102, 91, 0.42);
+  background: #eef8f4;
+}
+
 .error,
 .notice,
 .credential {
@@ -514,6 +530,13 @@ nav button:hover,
   width: 100%;
 }
 
+.report-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .filter-bar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -755,5 +778,14 @@ th {
 
   .panel-head {
     flex-direction: column;
+  }
+
+  .report-tools {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .report-tools > * {
+    flex: 1 1 180px;
   }
 }
