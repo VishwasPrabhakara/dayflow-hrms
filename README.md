@@ -6,6 +6,8 @@ Dayflow is an 8-hour hackathon HRMS built for the Odoo x NMIT Bangalore Hackatho
 
 GitHub Pages frontend: https://vishwasprabhakara.github.io/dayflow-hrms/
 
+Current live backend tunnel: https://bright-chefs-behave.loca.lt
+
 The app is a real full-stack HRMS. GitHub Pages can host only the React frontend; the Express + SQLite + Gmail OTP backend must be running separately for login, OTP, uploads, approvals, payroll, and reports to work.
 
 Build the Pages frontend against a hosted backend:

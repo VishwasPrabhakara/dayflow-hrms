@@ -20,6 +20,7 @@ const attendanceStatuses = new Set(["Present", "Absent", "Half-day", "Leave"]);
 const allowedOrigins = new Set([
   "http://127.0.0.1:5173",
   "http://localhost:5173",
+  "https://vishwasprabhakara.github.io",
   process.env.CLIENT_URL,
 ].filter(Boolean));
 
