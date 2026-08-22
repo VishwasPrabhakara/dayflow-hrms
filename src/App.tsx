@@ -510,7 +510,7 @@ function App() {
             onDocumentUpload={uploadEmployeeDocument}
           />
         )}
-        {active === "payroll" && <PayrollView role={user.role} rows={payroll} employees={employees} employee={selectedEmployee} token={token} />}
+        {active === "payroll" && <PayrollView role={user.role} rows={payroll} employees={employees} employee={selectedEmployee} defaultEmployeeId={user.role === "admin" ? user.employeeId : selectedEmployee?.id} token={token} />}
         {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} payroll={payroll} documents={documents} activity={activity} token={token} />}
         <footer className="app-footer">
           <div>
@@ -1864,12 +1864,14 @@ function PayrollView({
   rows,
   employees,
   employee,
+  defaultEmployeeId,
   token,
 }: {
   role: Role;
   rows: PayrollSlip[];
   employees: Employee[];
   employee?: Employee;
+  defaultEmployeeId?: string;
   token: string;
 }) {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -1879,7 +1881,7 @@ function PayrollView({
       : employees,
     [employees, role]
   );
-  const defaultPayrollEmployeeId = role === "admin" ? orderedEmployees[0]?.id || "" : employee?.id || "";
+  const defaultPayrollEmployeeId = defaultEmployeeId || (role === "admin" ? orderedEmployees[0]?.id || "" : employee?.id || "");
   const [employeeId, setEmployeeId] = useState(defaultPayrollEmployeeId);
   const [slips, setSlips] = useState(rows);
   const [loading, setLoading] = useState(false);

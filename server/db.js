@@ -296,3 +296,58 @@ if (db.prepare("SELECT COUNT(*) AS count FROM employees").get().count === 0) {
     "Leave"
   );
 }
+
+function adminEmployeeName(email) {
+  const local = String(email || "hr").split("@")[0];
+  if (local.toLowerCase() === "hr" || /\d/.test(local)) return "HR Administrator";
+  return `${local
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())} Admin`;
+}
+
+function ensureAdminEmployeeRecords() {
+  const admins = db.prepare("SELECT id, email, employee_id FROM users WHERE role = 'admin'").all();
+  for (const admin of admins) {
+    const linkedEmployee = admin.employee_id && db.prepare("SELECT * FROM employees WHERE id = ?").get(admin.employee_id);
+    if (linkedEmployee) {
+      const expectedName = adminEmployeeName(admin.email);
+      if (linkedEmployee.title === "HR Officer" && linkedEmployee.department === "People Ops" && linkedEmployee.name !== expectedName) {
+        db.prepare("UPDATE employees SET name = ?, avatar = ? WHERE id = ?").run(expectedName, initialsFor(expectedName), linkedEmployee.id);
+      }
+      continue;
+    }
+    const existingEmployee = db.prepare("SELECT id FROM employees WHERE email = ?").get(admin.email);
+    if (existingEmployee) {
+      db.prepare("UPDATE users SET employee_id = ? WHERE id = ?").run(existingEmployee.id, admin.id);
+      continue;
+    }
+
+    const name = adminEmployeeName(admin.email);
+    const employeeId = createEmployeeId(name);
+    const joined = new Date().toISOString().slice(0, 10);
+    const wage = 90000;
+    db.prepare(`
+      INSERT INTO employees
+      (id, name, email, phone, address, title, department, location, manager, joined, wage, skills_json, avatar)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      employeeId,
+      name,
+      admin.email,
+      "+91 90000 00000",
+      "HR Desk, Bangalore",
+      "HR Officer",
+      "People Ops",
+      "Bangalore",
+      "Nikhil Joshi",
+      joined,
+      wage,
+      JSON.stringify(["Onboarding", "Attendance", "Payroll", "Compliance"]),
+      initialsFor(name)
+    );
+    insertSalary(employeeId, wage);
+    db.prepare("UPDATE users SET employee_id = ? WHERE id = ?").run(employeeId, admin.id);
+  }
+}
+
+ensureAdminEmployeeRecords();
