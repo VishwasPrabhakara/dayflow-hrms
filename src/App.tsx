@@ -15,6 +15,9 @@ import {
   Mail,
   Menu,
   Lock,
+  Plus,
+  RotateCcw,
+  Save,
   Search,
   ShieldCheck,
   Sparkles,
@@ -24,7 +27,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Role = "admin" | "employee";
 type View = "employees" | "attendance" | "timeoff" | "profile" | "salary";
@@ -61,7 +64,7 @@ type LeaveRequest = {
   note: string;
 };
 
-const employees: Employee[] = [
+const seedEmployees: Employee[] = [
   {
     id: "ODOJO23001",
     name: "Vishwas P",
@@ -198,28 +201,66 @@ function formatMoney(amount: number) {
   }).format(amount);
 }
 
+function useStoredState<T>(key: string, initialValue: T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const stored = window.localStorage.getItem(key);
+      return stored ? (JSON.parse(stored) as T) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+
+  return [value, setValue] as const;
+}
+
+function initialsFor(name: string) {
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  return initials || "DF";
+}
+
+function daysBetween(start: string, end: string) {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 1;
+  const diff = Math.max(0, endDate.getTime() - startDate.getTime());
+  return Math.floor(diff / 86400000) + 1;
+}
+
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [employeesData, setEmployeesData] = useStoredState<Employee[]>("dayflow-employees", seedEmployees);
+  const [requests, setRequests] = useStoredState<LeaveRequest[]>("dayflow-leave-requests", initialRequests);
   const [role, setRole] = useState<Role>("admin");
   const [activeView, setActiveView] = useState<View>("employees");
-  const [selectedId, setSelectedId] = useState(employees[0].id);
+  const [selectedId, setSelectedId] = useState(seedEmployees[0].id);
   const [query, setQuery] = useState("");
-  const [checkedIn, setCheckedIn] = useState(true);
-  const [requests, setRequests] = useState(initialRequests);
 
-  const selectedEmployee = employees.find((employee) => employee.id === selectedId) ?? employees[0];
-  const visibleEmployees = role === "employee" ? [employees[0]] : employees;
+  const selectedEmployee =
+    employeesData.find((employee) => employee.id === selectedId) ?? employeesData[0] ?? seedEmployees[0];
+  const selfEmployee = employeesData[0] ?? seedEmployees[0];
+  const visibleEmployees = role === "employee" ? [selfEmployee] : employeesData;
   const filteredEmployees = visibleEmployees.filter((employee) => {
     const haystack = `${employee.name} ${employee.title} ${employee.department} ${employee.id}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
 
   const metrics = useMemo(() => {
-    const present = employees.filter((employee) => employee.status === "present").length;
+    const present = employeesData.filter((employee) => employee.status === "present").length;
     const pending = requests.filter((request) => request.status === "Pending").length;
-    const payroll = employees.reduce((sum, employee) => sum + employee.wage, 0);
+    const payroll = employeesData.reduce((sum, employee) => sum + employee.wage, 0);
     return { present, pending, payroll };
-  }, [requests]);
+  }, [employeesData, requests]);
 
   function updateRequest(id: string, status: LeaveStatus) {
     setRequests((current) =>
@@ -227,9 +268,79 @@ function App() {
     );
   }
 
+  function createRequest(input: Pick<LeaveRequest, "type" | "start" | "end" | "note">) {
+    const employee = role === "employee" ? selfEmployee : selectedEmployee;
+    const nextRequest: LeaveRequest = {
+      id: `LV-${1043 + requests.length}`,
+      employeeId: employee.id,
+      employee: employee.name,
+      type: input.type,
+      start: input.start,
+      end: input.end,
+      allocation: daysBetween(input.start, input.end),
+      status: "Pending",
+      note: input.note.trim() || "No remarks added.",
+    };
+    setRequests((current) => [nextRequest, ...current]);
+  }
+
+  function createEmployee(input: Omit<Employee, "id" | "avatar" | "status" | "checkIn" | "checkOut">) {
+    const serial = String(employeesData.length + 1).padStart(3, "0");
+    const nextEmployee: Employee = {
+      ...input,
+      id: `OD${initialsFor(input.name)}260${serial}`,
+      avatar: initialsFor(input.name),
+      status: "absent",
+      checkIn: "--",
+      checkOut: "--",
+      wage: Number(input.wage) || 50000,
+      skills: input.skills.length ? input.skills : ["Onboarding"],
+    };
+    setEmployeesData((current) => [nextEmployee, ...current]);
+    setSelectedId(nextEmployee.id);
+    setActiveView("profile");
+  }
+
+  function saveEmployee(id: string, input: Partial<Employee>) {
+    setEmployeesData((current) =>
+      current.map((employee) =>
+        employee.id === id
+          ? {
+              ...employee,
+              ...input,
+              avatar: input.name ? initialsFor(input.name) : employee.avatar,
+              wage: Number(input.wage ?? employee.wage),
+            }
+          : employee
+      )
+    );
+  }
+
+  function toggleAttendance() {
+    const targetId = role === "employee" ? selfEmployee.id : selectedEmployee.id;
+    const now = new Date();
+    const time = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    setEmployeesData((current) =>
+      current.map((employee) => {
+        if (employee.id !== targetId) return employee;
+        if (employee.status !== "present") {
+          return { ...employee, status: "present", checkIn: time, checkOut: "--" };
+        }
+        return { ...employee, checkOut: time };
+      })
+    );
+  }
+
+  function resetDemoData() {
+    setEmployeesData(seedEmployees);
+    setRequests(initialRequests);
+    setSelectedId(seedEmployees[0].id);
+    setActiveView("employees");
+  }
+
   function switchRole(nextRole: Role) {
     setRole(nextRole);
-    setSelectedId(employees[0].id);
+    setSelectedId(selfEmployee.id);
     if (nextRole === "employee" && activeView === "employees") {
       setActiveView("profile");
     }
@@ -289,6 +400,10 @@ function App() {
             <LogOut size={17} />
             Log out
           </button>
+          <button className="ghost-button" onClick={resetDemoData}>
+            <RotateCcw size={17} />
+            Reset demo
+          </button>
         </div>
       </aside>
 
@@ -313,8 +428,8 @@ function App() {
         </header>
 
         <section className="metric-grid" aria-label="Summary">
-          <Metric title="People" value={String(employees.length)} note="registered employees" />
-          <Metric title="Present Today" value={`${metrics.present}/${employees.length}`} note="live attendance" />
+          <Metric title="People" value={String(employeesData.length)} note="registered employees" />
+          <Metric title="Present Today" value={`${metrics.present}/${employeesData.length}`} note="live attendance" />
           <Metric title="Pending Leaves" value={String(metrics.pending)} note="waiting for approval" />
           <Metric title="Monthly Payroll" value={formatMoney(metrics.payroll)} note="configured wages" />
         </section>
@@ -329,6 +444,7 @@ function App() {
               setSelectedId(id);
               setActiveView("profile");
             }}
+            onCreate={createEmployee}
           />
         )}
 
@@ -336,16 +452,22 @@ function App() {
           <AttendanceView
             employees={visibleEmployees}
             role={role}
-            checkedIn={checkedIn}
-            onToggle={() => setCheckedIn((value) => !value)}
+            selectedEmployee={role === "employee" ? selfEmployee : selectedEmployee}
+            onToggle={toggleAttendance}
           />
         )}
 
         {activeView === "timeoff" && (
-          <TimeOffView requests={requests} role={role} onUpdate={updateRequest} />
+          <TimeOffView
+            requests={requests}
+            role={role}
+            selfEmployee={selfEmployee}
+            onUpdate={updateRequest}
+            onCreate={createRequest}
+          />
         )}
 
-        {activeView === "profile" && <ProfileView employee={selectedEmployee} role={role} />}
+        {activeView === "profile" && <ProfileView employee={selectedEmployee} role={role} onSave={saveEmployee} />}
 
         {activeView === "salary" && <SalaryView employee={selectedEmployee} role={role} />}
       </section>
@@ -508,13 +630,43 @@ function EmployeesView({
   selectedId,
   onQuery,
   onSelect,
+  onCreate,
 }: {
   employees: Employee[];
   query: string;
   selectedId: string;
   onQuery: (value: string) => void;
   onSelect: (id: string) => void;
+  onCreate: (input: Omit<Employee, "id" | "avatar" | "status" | "checkIn" | "checkOut">) => void;
 }) {
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState({
+    name: "New Employee",
+    title: "Operations Associate",
+    department: "Operations",
+    location: "Bangalore",
+    email: "new.employee@dayflow.test",
+    phone: "+91 90000 00000",
+    manager: "Vishwas P",
+    joined: "2026-08-22",
+    wage: "54000",
+    skills: "Documentation, Attendance, Support",
+  });
+  const valid = draft.name.trim().length > 2 && draft.email.includes("@") && Number(draft.wage) > 0;
+
+  function submitEmployee() {
+    if (!valid) return;
+    onCreate({
+      ...draft,
+      wage: Number(draft.wage),
+      skills: draft.skills
+        .split(",")
+        .map((skill) => skill.trim())
+        .filter(Boolean),
+    });
+    setShowForm(false);
+  }
+
   return (
     <section className="content-grid employees-layout">
       <div className="panel wide">
@@ -523,11 +675,31 @@ function EmployeesView({
             <p className="eyebrow">Directory</p>
             <h2>People overview</h2>
           </div>
-          <button className="primary-button">
-            <Upload size={16} />
+          <button className="primary-button" onClick={() => setShowForm((value) => !value)}>
+            <Plus size={16} />
             New
           </button>
         </div>
+        {showForm && (
+          <div className="inline-form employee-form">
+            <TextInput label="Name" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+            <TextInput label="Job Title" value={draft.title} onChange={(value) => setDraft({ ...draft, title: value })} />
+            <TextInput label="Department" value={draft.department} onChange={(value) => setDraft({ ...draft, department: value })} />
+            <TextInput label="Location" value={draft.location} onChange={(value) => setDraft({ ...draft, location: value })} />
+            <TextInput label="Email" value={draft.email} onChange={(value) => setDraft({ ...draft, email: value })} />
+            <TextInput label="Phone" value={draft.phone} onChange={(value) => setDraft({ ...draft, phone: value })} />
+            <TextInput label="Manager" value={draft.manager} onChange={(value) => setDraft({ ...draft, manager: value })} />
+            <TextInput label="Monthly Wage" value={draft.wage} onChange={(value) => setDraft({ ...draft, wage: value })} />
+            <label className="compact-field span-two">
+              <span>Skills</span>
+              <input value={draft.skills} onChange={(event) => setDraft({ ...draft, skills: event.target.value })} />
+            </label>
+            <button className="primary-button span-two" disabled={!valid} onClick={submitEmployee}>
+              <Save size={16} />
+              Save employee
+            </button>
+          </div>
+        )}
         <label className="search-box">
           <Search size={18} />
           <input
@@ -577,14 +749,15 @@ function Pulse({ label, value }: { label: string; value: string }) {
 function AttendanceView({
   employees,
   role,
-  checkedIn,
+  selectedEmployee,
   onToggle,
 }: {
   employees: Employee[];
   role: Role;
-  checkedIn: boolean;
+  selectedEmployee: Employee;
   onToggle: () => void;
 }) {
+  const isCheckedIn = selectedEmployee.status === "present" && selectedEmployee.checkOut === "--";
   return (
     <section className="content-grid">
       <div className="panel wide">
@@ -593,9 +766,9 @@ function AttendanceView({
             <p className="eyebrow">{role === "admin" ? "All employees" : "Personal record"}</p>
             <h2>Attendance register</h2>
           </div>
-          <div className={`live-pill ${checkedIn ? "green" : "red"}`}>
+          <div className={`live-pill ${isCheckedIn ? "green" : "red"}`}>
             <Fingerprint size={16} />
-            {checkedIn ? "Checked in" : "Checked out"}
+            {isCheckedIn ? "Checked in" : "Ready"}
           </div>
         </div>
         <div className="table-wrap">
@@ -639,12 +812,12 @@ function AttendanceView({
         <p className="eyebrow">Self service</p>
         <h2>Mark attendance</h2>
         <div className="clock-face">
-          <span>09:04</span>
-          <small>current session</small>
+          <span>{selectedEmployee.checkIn === "--" ? "00:00" : selectedEmployee.checkIn}</span>
+          <small>{selectedEmployee.name}</small>
         </div>
         <button className="primary-button full" onClick={onToggle}>
           <Fingerprint size={17} />
-          {checkedIn ? "Check Out" : "Check In"}
+          {isCheckedIn ? "Check Out" : "Check In"}
         </button>
       </div>
     </section>
@@ -654,13 +827,31 @@ function AttendanceView({
 function TimeOffView({
   requests,
   role,
+  selfEmployee,
   onUpdate,
+  onCreate,
 }: {
   requests: LeaveRequest[];
   role: Role;
+  selfEmployee: Employee;
   onUpdate: (id: string, status: LeaveStatus) => void;
+  onCreate: (input: Pick<LeaveRequest, "type" | "start" | "end" | "note">) => void;
 }) {
-  const visibleRequests = role === "employee" ? requests.filter((request) => request.employeeId === employees[0].id) : requests;
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState({
+    type: "Paid Time Off" as LeaveRequest["type"],
+    start: "2026-08-23",
+    end: "2026-08-23",
+    note: "Need personal time off.",
+  });
+  const visibleRequests = role === "employee" ? requests.filter((request) => request.employeeId === selfEmployee.id) : requests;
+  const valid = draft.start <= draft.end && draft.note.trim().length > 3;
+
+  function submitRequest() {
+    if (!valid) return;
+    onCreate(draft);
+    setShowForm(false);
+  }
 
   return (
     <section className="content-grid">
@@ -670,11 +861,36 @@ function TimeOffView({
             <p className="eyebrow">Requests</p>
             <h2>{role === "admin" ? "Approval queue" : "My leave calendar"}</h2>
           </div>
-          <button className="primary-button">
-            <CalendarCheck size={16} />
+          <button className="primary-button" onClick={() => setShowForm((value) => !value)}>
+            <Plus size={16} />
             New
           </button>
         </div>
+        {showForm && (
+          <div className="inline-form leave-form">
+            <label className="compact-field">
+              <span>Leave Type</span>
+              <select
+                value={draft.type}
+                onChange={(event) => setDraft({ ...draft, type: event.target.value as LeaveRequest["type"] })}
+              >
+                <option>Paid Time Off</option>
+                <option>Sick Leave</option>
+                <option>Unpaid Leave</option>
+              </select>
+            </label>
+            <TextInput label="Start Date" type="date" value={draft.start} onChange={(value) => setDraft({ ...draft, start: value })} />
+            <TextInput label="End Date" type="date" value={draft.end} onChange={(value) => setDraft({ ...draft, end: value })} />
+            <label className="compact-field span-two">
+              <span>Remarks</span>
+              <input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} />
+            </label>
+            <button className="primary-button" disabled={!valid} onClick={submitRequest}>
+              <CalendarCheck size={16} />
+              Submit request
+            </button>
+          </div>
+        )}
         <div className="request-list">
           {visibleRequests.map((request) => (
             <article className="request-card" key={request.id}>
@@ -725,7 +941,66 @@ function Balance({ label, used, total }: { label: string; used: number; total: n
   );
 }
 
-function ProfileView({ employee, role }: { employee: Employee; role: Role }) {
+function ProfileView({
+  employee,
+  role,
+  onSave,
+}: {
+  employee: Employee;
+  role: Role;
+  onSave: (id: string, input: Partial<Employee>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({
+    name: employee.name,
+    title: employee.title,
+    department: employee.department,
+    location: employee.location,
+    email: employee.email,
+    phone: employee.phone,
+    manager: employee.manager,
+    wage: String(employee.wage),
+    skills: employee.skills.join(", "),
+  });
+
+  useEffect(() => {
+    setDraft({
+      name: employee.name,
+      title: employee.title,
+      department: employee.department,
+      location: employee.location,
+      email: employee.email,
+      phone: employee.phone,
+      manager: employee.manager,
+      wage: String(employee.wage),
+      skills: employee.skills.join(", "),
+    });
+  }, [employee]);
+
+  function saveProfile() {
+    const adminFields =
+      role === "admin"
+        ? {
+            name: draft.name,
+            title: draft.title,
+            department: draft.department,
+            location: draft.location,
+            manager: draft.manager,
+            wage: Number(draft.wage),
+            skills: draft.skills
+              .split(",")
+              .map((skill) => skill.trim())
+              .filter(Boolean),
+          }
+        : {};
+    onSave(employee.id, {
+      ...adminFields,
+      email: draft.email,
+      phone: draft.phone,
+    });
+    setEditing(false);
+  }
+
   return (
     <section className="content-grid profile-layout">
       <div className="panel profile-hero">
@@ -735,9 +1010,9 @@ function ProfileView({ employee, role }: { employee: Employee; role: Role }) {
           <h2>{employee.name}</h2>
           <p>{employee.title} in {employee.department}</p>
         </div>
-        <button className="secondary-button">
-          <Upload size={16} />
-          Avatar
+        <button className="secondary-button" onClick={() => setEditing((value) => !value)}>
+          <Save size={16} />
+          {editing ? "Close" : "Edit"}
         </button>
       </div>
       <div className="panel details-panel">
@@ -752,24 +1027,75 @@ function ProfileView({ employee, role }: { employee: Employee; role: Role }) {
           </button>
         </div>
         <div className="detail-grid">
-          <Detail label="Email" value={employee.email} />
-          <Detail label="Mobile" value={employee.phone} />
-          <Detail label="Department" value={employee.department} />
-          <Detail label="Manager" value={employee.manager} />
-          <Detail label="Work Location" value={employee.location} />
-          <Detail label="Date of Joining" value={employee.joined} />
+          {editing ? (
+            <>
+              {role === "admin" && (
+                <>
+                  <TextInput label="Name" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+                  <TextInput label="Job Title" value={draft.title} onChange={(value) => setDraft({ ...draft, title: value })} />
+                  <TextInput label="Department" value={draft.department} onChange={(value) => setDraft({ ...draft, department: value })} />
+                  <TextInput label="Location" value={draft.location} onChange={(value) => setDraft({ ...draft, location: value })} />
+                  <TextInput label="Manager" value={draft.manager} onChange={(value) => setDraft({ ...draft, manager: value })} />
+                  <TextInput label="Monthly Wage" value={draft.wage} onChange={(value) => setDraft({ ...draft, wage: value })} />
+                </>
+              )}
+              <TextInput label="Email" value={draft.email} onChange={(value) => setDraft({ ...draft, email: value })} />
+              <TextInput label="Mobile" value={draft.phone} onChange={(value) => setDraft({ ...draft, phone: value })} />
+              <button className="primary-button span-two" onClick={saveProfile}>
+                <Save size={16} />
+                Save profile
+              </button>
+            </>
+          ) : (
+            <>
+              <Detail label="Email" value={employee.email} />
+              <Detail label="Mobile" value={employee.phone} />
+              <Detail label="Department" value={employee.department} />
+              <Detail label="Manager" value={employee.manager} />
+              <Detail label="Work Location" value={employee.location} />
+              <Detail label="Date of Joining" value={employee.joined} />
+            </>
+          )}
         </div>
       </div>
       <div className="panel skills-panel">
         <p className="eyebrow">Profile depth</p>
         <h2>Skills & certifications</h2>
-        <div className="tag-list">
-          {employee.skills.map((skill) => (
-            <span key={skill}>{skill}</span>
-          ))}
-        </div>
+        {editing && role === "admin" ? (
+          <div className="inline-form">
+            <label className="compact-field span-two">
+              <span>Skills</span>
+              <input value={draft.skills} onChange={(event) => setDraft({ ...draft, skills: event.target.value })} />
+            </label>
+          </div>
+        ) : (
+          <div className="tag-list">
+            {employee.skills.map((skill) => (
+              <span key={skill}>{skill}</span>
+            ))}
+          </div>
+        )}
       </div>
     </section>
+  );
+}
+
+function TextInput({
+  label,
+  value,
+  type = "text",
+  onChange,
+}: {
+  label: string;
+  value: string;
+  type?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="compact-field">
+      <span>{label}</span>
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
   );
 }
 

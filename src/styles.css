@@ -20,7 +20,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -538,6 +539,60 @@ button:disabled {
   color: #17201d;
 }
 
+.inline-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid rgba(19, 102, 91, 0.18);
+  border-radius: 8px;
+  background: #f6faf8;
+}
+
+.employee-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.leave-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.compact-field {
+  display: grid;
+  gap: 7px;
+}
+
+.compact-field span {
+  color: #66756f;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.compact-field input,
+.compact-field select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(23, 32, 29, 0.12);
+  border-radius: 8px;
+  padding: 0 11px;
+  outline: 0;
+  background: #ffffff;
+  color: #17201d;
+  font-weight: 750;
+}
+
+.compact-field input:focus,
+.compact-field select:focus {
+  border-color: #13665b;
+  box-shadow: 0 0 0 3px rgba(19, 102, 91, 0.12);
+}
+
+.span-two {
+  grid-column: span 2;
+}
+
 .employee-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -966,8 +1021,15 @@ th {
   .metric-grid,
   .employee-grid,
   .salary-summary,
-  .detail-grid {
+  .detail-grid,
+  .inline-form,
+  .employee-form,
+  .leave-form {
     grid-template-columns: 1fr;
+  }
+
+  .span-two {
+    grid-column: span 1;
   }
 
   .request-card {
