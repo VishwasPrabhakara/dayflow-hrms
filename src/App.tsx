@@ -39,6 +39,13 @@ type AttendanceStatus = "present" | "leave" | "absent";
 type LeaveStatus = "Pending" | "Approved" | "Rejected";
 type AttendanceFilter = "all" | AttendanceStatus;
 
+type AuthUser = {
+  role: Role;
+  employeeId?: string;
+  name: string;
+  email: string;
+};
+
 type Employee = {
   id: string;
   name: string;
@@ -254,17 +261,19 @@ function downloadTextFile(filename: string, content: string) {
 }
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [employeesData, setEmployeesData] = useStoredState<Employee[]>("dayflow-employees", seedEmployees);
   const [requests, setRequests] = useStoredState<LeaveRequest[]>("dayflow-leave-requests", initialRequests);
-  const [role, setRole] = useState<Role>("admin");
   const [activeView, setActiveView] = useState<View>("employees");
   const [selectedId, setSelectedId] = useState(seedEmployees[0].id);
   const [query, setQuery] = useState("");
+  const [generatedCredential, setGeneratedCredential] = useState<{ id: string; password: string } | null>(null);
+  const role = currentUser?.role ?? "admin";
 
   const selectedEmployee =
     employeesData.find((employee) => employee.id === selectedId) ?? employeesData[0] ?? seedEmployees[0];
-  const selfEmployee = employeesData[0] ?? seedEmployees[0];
+  const selfEmployee =
+    employeesData.find((employee) => employee.id === currentUser?.employeeId) ?? employeesData[0] ?? seedEmployees[0];
   const visibleEmployees = role === "employee" ? [selfEmployee] : employeesData;
   const filteredEmployees = visibleEmployees.filter((employee) => {
     const haystack = `${employee.name} ${employee.title} ${employee.department} ${employee.id}`.toLowerCase();
@@ -313,6 +322,7 @@ function App() {
       skills: input.skills.length ? input.skills : ["Onboarding"],
     };
     setEmployeesData((current) => [nextEmployee, ...current]);
+    setGeneratedCredential({ id: nextEmployee.id, password: "Welcome@2026" });
     setSelectedId(nextEmployee.id);
     setActiveView("profile");
   }
@@ -354,16 +364,19 @@ function App() {
     setActiveView("employees");
   }
 
-  function switchRole(nextRole: Role) {
-    setRole(nextRole);
-    setSelectedId(selfEmployee.id);
-    if (nextRole === "employee" && activeView === "employees") {
+  function startSession(user: AuthUser) {
+    setCurrentUser(user);
+    if (user.role === "employee") {
+      setSelectedId(user.employeeId ?? seedEmployees[0].id);
       setActiveView("profile");
+      return;
     }
+    setSelectedId(employeesData[0]?.id ?? seedEmployees[0].id);
+    setActiveView("employees");
   }
 
-  if (!isAuthenticated) {
-    return <AuthScreen onEnter={() => setIsAuthenticated(true)} />;
+  if (!currentUser) {
+    return <AuthScreen employees={employeesData} onEnter={startSession} />;
   }
 
   return (
@@ -379,13 +392,10 @@ function App() {
           </div>
         </div>
 
-        <div className="role-toggle" aria-label="Role switch">
-          <button className={role === "admin" ? "active" : ""} onClick={() => switchRole("admin")}>
-            Admin
-          </button>
-          <button className={role === "employee" ? "active" : ""} onClick={() => switchRole("employee")}>
-            Employee
-          </button>
+        <div className="session-card">
+          <span>{role === "admin" ? "Admin / HR Officer" : "Employee Account"}</span>
+          <strong>{currentUser.name}</strong>
+          <small>{currentUser.email}</small>
         </div>
 
         <nav className="nav-list" aria-label="Main navigation">
@@ -412,7 +422,7 @@ function App() {
             <ShieldCheck size={17} />
             Role-based access
           </div>
-          <button className="ghost-button" onClick={() => setIsAuthenticated(false)}>
+          <button className="ghost-button" onClick={() => setCurrentUser(null)}>
             <LogOut size={17} />
             Log out
           </button>
@@ -461,6 +471,7 @@ function App() {
               setActiveView("profile");
             }}
             onCreate={createEmployee}
+            generatedCredential={generatedCredential}
           />
         )}
 
@@ -495,17 +506,26 @@ function App() {
   );
 }
 
-function AuthScreen({ onEnter }: { onEnter: () => void }) {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+function AuthScreen({ employees, onEnter }: { employees: Employee[]; onEnter: (user: AuthUser) => void }) {
+  const [mode, setMode] = useState<"admin" | "employee" | "signup">("admin");
   const [showPassword, setShowPassword] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [error, setError] = useState("");
   const [form, setForm] = useState({
     company: "Odoo India",
     name: "Vishwas P",
-    email: "vishwas@dayflow.test",
+    email: "hr@dayflow.test",
+    employeeId: seedEmployees[0].id,
     phone: "9876543210",
     password: "Dayflow@2026",
+    otp: "260001",
   });
+  const employeeAccount = employees.find(
+    (employee) =>
+      employee.id.toLowerCase() === form.employeeId.toLowerCase() ||
+      employee.email.toLowerCase() === form.email.toLowerCase()
+  );
   const initials = form.name
     .split(" ")
     .filter(Boolean)
@@ -517,10 +537,50 @@ function AuthScreen({ onEnter }: { onEnter: () => void }) {
   const emailValid = form.email.includes("@") && form.email.includes(".");
   const passwordValid = /^(?=.*[A-Z])(?=.*\d).{8,}$/.test(form.password);
   const phoneValid = /^\+?\d[\d\s-]{7,}$/.test(form.phone);
-  const valid = emailValid && passwordValid && (mode === "signin" || (form.company.trim().length > 2 && phoneValid));
+  const adminLoginValid = mode === "admin" && emailValid && passwordValid;
+  const employeeLoginValid = mode === "employee" && Boolean(employeeAccount) && passwordValid;
+  const signupValid = mode === "signup" && emailValid && passwordValid && form.company.trim().length > 2 && phoneValid;
+  const valid = adminLoginValid || employeeLoginValid || signupValid;
 
   function update(field: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+    setError("");
+  }
+
+  function sendOtp() {
+    setTouched(true);
+    if (!valid) {
+      setError("Please fix the highlighted login details before verification.");
+      return;
+    }
+    setOtpSent(true);
+    setError("");
+  }
+
+  function verifyAndEnter() {
+    setTouched(true);
+    if (!otpSent) {
+      sendOtp();
+      return;
+    }
+    if (form.otp !== "260001") {
+      setError("Invalid OTP. Use 260001 for this local demo verification.");
+      return;
+    }
+    if (mode === "employee" && employeeAccount) {
+      onEnter({
+        role: "employee",
+        employeeId: employeeAccount.id,
+        name: employeeAccount.name,
+        email: employeeAccount.email,
+      });
+      return;
+    }
+    onEnter({
+      role: "admin",
+      name: form.name || "HR Officer",
+      email: form.email,
+    });
   }
 
   return (
@@ -541,23 +601,26 @@ function AuthScreen({ onEnter }: { onEnter: () => void }) {
         </p>
         <div className="auth-preview">
           <div>
-            <span>Generated Login ID</span>
-            <strong>{loginId}</strong>
+            <span>Admin Demo Login</span>
+            <strong>hr@dayflow.test</strong>
           </div>
           <div>
-            <span>Temporary Password</span>
-            <strong>System generated</strong>
+            <span>Employee Demo Login</span>
+            <strong>{seedEmployees[0].id}</strong>
           </div>
         </div>
       </section>
 
       <section className="auth-card">
         <div className="auth-tabs">
-          <button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>
-            Sign In
+          <button className={mode === "admin" ? "active" : ""} onClick={() => setMode("admin")}>
+            Admin / HR
+          </button>
+          <button className={mode === "employee" ? "active" : ""} onClick={() => setMode("employee")}>
+            Employee
           </button>
           <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>
-            Company Setup
+            Setup
           </button>
         </div>
 
@@ -574,11 +637,31 @@ function AuthScreen({ onEnter }: { onEnter: () => void }) {
           </>
         )}
 
-        {mode === "signin" && (
+        {mode === "admin" && (
           <>
-            <Field icon={Fingerprint} label="Login ID / Email" value={form.email} onChange={(value) => update("email", value)} />
+            <Field icon={Mail} label="Admin Email" value={form.email} onChange={(value) => update("email", value)} />
             <div className="auth-hint">
-              Demo Login ID: <strong>{loginId}</strong>
+              HR demo account: <strong>hr@dayflow.test</strong>
+            </div>
+          </>
+        )}
+
+        {mode === "employee" && (
+          <>
+            <Field
+              icon={Fingerprint}
+              label="Employee ID / Email"
+              value={form.employeeId}
+              onChange={(value) => {
+                const match = employees.find((employee) => employee.id.toLowerCase() === value.toLowerCase());
+                update("employeeId", value);
+                if (match) update("email", match.email);
+              }}
+            />
+            <div className={`auth-hint ${employeeAccount ? "success" : "danger"}`}>
+              {employeeAccount
+                ? `Employee account found: ${employeeAccount.name}`
+                : "Employee must be created by Admin/HR before login."}
             </div>
           </>
         )}
@@ -596,29 +679,28 @@ function AuthScreen({ onEnter }: { onEnter: () => void }) {
           </button>
         </label>
 
-        <button
-          className="primary-button full auth-submit"
-          disabled={!valid}
-          onClick={() => {
-            setTouched(true);
-            if (valid) onEnter();
-          }}
-        >
+        {otpSent && (
+          <Field icon={ShieldCheck} label="Email OTP" value={form.otp} onChange={(value) => update("otp", value)} />
+        )}
+
+        <button className="primary-button full auth-submit" disabled={!valid} onClick={otpSent ? verifyAndEnter : sendOtp}>
           <ShieldCheck size={17} />
-          {mode === "signin" ? "Sign In" : "Create HR Workspace"}
+          {otpSent ? "Verify OTP & Enter" : "Send Email OTP"}
         </button>
         {touched && !valid && (
           <div className="validation-box">
             <strong>Validation required</strong>
-            <span>{emailValid ? "Email ok" : "Use a valid email address."}</span>
+            {mode !== "employee" && <span>{emailValid ? "Email ok" : "Use a valid email address."}</span>}
+            {mode === "employee" && <span>{employeeAccount ? "Employee account ok" : "Use an employee ID created by Admin/HR."}</span>}
             <span>{passwordValid ? "Password ok" : "Password needs 8 chars, 1 capital, and 1 number."}</span>
             {mode === "signup" && <span>{phoneValid ? "Phone ok" : "Enter a valid phone number."}</span>}
           </div>
         )}
+        {error && <div className="validation-box danger"><strong>{error}</strong></div>}
         <p className="auth-note">
-          {mode === "signin"
-            ? "Incorrect credentials will be validated before access."
-            : "Employees receive generated login credentials after HR approval."}
+          {mode === "employee"
+            ? "Employees use their generated login ID and complete OTP verification."
+            : "Admin/HR manages employee accounts and generated credentials."}
         </p>
       </section>
     </main>
@@ -671,6 +753,7 @@ function EmployeesView({
   onQuery,
   onSelect,
   onCreate,
+  generatedCredential,
 }: {
   employees: Employee[];
   query: string;
@@ -678,6 +761,7 @@ function EmployeesView({
   onQuery: (value: string) => void;
   onSelect: (id: string) => void;
   onCreate: (input: Omit<Employee, "id" | "avatar" | "status" | "checkIn" | "checkOut">) => void;
+  generatedCredential: { id: string; password: string } | null;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState({
@@ -738,6 +822,16 @@ function EmployeesView({
               <Save size={16} />
               Save employee
             </button>
+          </div>
+        )}
+        {generatedCredential && (
+          <div className="credential-banner">
+            <ShieldCheck size={18} />
+            <div>
+              <span>Generated employee credentials</span>
+              <strong>{generatedCredential.id} / {generatedCredential.password}</strong>
+              <small>Employee completes OTP verification on first login.</small>
+            </div>
           </div>
         )}
         <label className="search-box">

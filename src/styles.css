@@ -126,7 +126,7 @@ button:disabled {
 
 .auth-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 5px;
   margin-bottom: 18px;
   padding: 5px;
@@ -201,6 +201,15 @@ button:disabled {
 
 .auth-hint {
   margin: -2px 0 12px;
+}
+
+.auth-hint.success {
+  color: #087443;
+}
+
+.auth-hint.danger,
+.validation-box.danger {
+  color: #a93428;
 }
 
 .auth-submit {
@@ -298,6 +307,25 @@ button:disabled {
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
+}
+
+.session-card {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.session-card span,
+.session-card small {
+  color: #bac8c1;
+  font-size: 0.8rem;
+}
+
+.session-card strong {
+  color: #ffffff;
 }
 
 .role-toggle button,
@@ -619,6 +647,35 @@ button:disabled {
 
 .span-two {
   grid-column: span 2;
+}
+
+.credential-banner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding: 13px;
+  border: 1px solid rgba(238, 185, 94, 0.32);
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #6b4b0f;
+}
+
+.credential-banner span,
+.credential-banner strong,
+.credential-banner small {
+  display: block;
+}
+
+.credential-banner span,
+.credential-banner small {
+  color: #66756f;
+  font-size: 0.82rem;
+}
+
+.credential-banner strong {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
 }
 
 .segmented-row,
