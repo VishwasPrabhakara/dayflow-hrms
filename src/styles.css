@@ -432,6 +432,15 @@ nav button:hover,
   border: 1px solid rgba(23, 32, 29, 0.1);
   border-radius: 8px;
   background: #fff;
+  color: #17201d;
+  text-align: left;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.employee-card:hover {
+  border-color: rgba(19, 102, 91, 0.38);
+  box-shadow: 0 14px 30px rgba(51, 65, 59, 0.1);
+  transform: translateY(-2px);
 }
 
 .employee-card strong,
@@ -465,6 +474,10 @@ nav button:hover,
 
 .profile {
   text-align: center;
+}
+
+.profile .primary {
+  margin-top: 16px;
 }
 
 .inline-actions {
@@ -544,6 +557,28 @@ th {
   background: #f6faf8;
   color: #66756f;
   font-weight: 800;
+}
+
+.checklist {
+  display: grid;
+  gap: 10px;
+}
+
+.checklist div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #6b4b0f;
+  font-weight: 850;
+}
+
+.checklist div.done {
+  background: #e7f2ee;
+  color: #13665b;
 }
 
 .tags {

@@ -150,6 +150,8 @@ export function rowToEmployee(row) {
   return {
     ...row,
     profilePhotoUrl: row.profile_photo_url || "",
+    accountVerified: row.account_verified === undefined ? null : Boolean(row.account_verified),
+    mustChangePassword: row.must_change_password === undefined ? null : Boolean(row.must_change_password),
     skills: JSON.parse(row.skills_json || "[]"),
   };
 }

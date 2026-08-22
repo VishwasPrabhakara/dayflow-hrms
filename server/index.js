@@ -301,10 +301,18 @@ app.get("/api/job-profiles", requireAuth, (req, res) => {
 
 app.get("/api/employees", requireAuth, (req, res) => {
   if (req.user.role === "employee") {
-    const employee = employeeByUser(req.user);
-    return res.json(employee ? [employee] : []);
+    const row = db.prepare(`
+      SELECT employees.*, users.verified AS account_verified, users.must_change_password
+      FROM employees LEFT JOIN users ON users.employee_id = employees.id
+      WHERE employees.id = ?
+    `).get(req.user.employeeId);
+    return res.json(row ? [rowToEmployee(row)] : []);
   }
-  const rows = db.prepare("SELECT * FROM employees ORDER BY joined DESC").all();
+  const rows = db.prepare(`
+    SELECT employees.*, users.verified AS account_verified, users.must_change_password
+    FROM employees LEFT JOIN users ON users.employee_id = employees.id
+    ORDER BY joined DESC
+  `).all();
   res.json(rows.map(rowToEmployee));
 });
 
@@ -390,6 +398,76 @@ app.post("/api/employees", requireAuth, requireAdmin, async (req, res) => {
   } catch (error) {
     db.exec("ROLLBACK");
     res.status(503).json({ error: error.message });
+  }
+});
+
+app.patch("/api/employees/:id", requireAuth, (req, res) => {
+  try {
+    const employeeId = req.params.id;
+    const employee = db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId);
+    if (!employee) return res.status(404).json({ error: "Employee not found." });
+    if (req.user.role === "employee" && req.user.employeeId !== employeeId) {
+      return res.status(403).json({ error: "Employees can update only their own profile." });
+    }
+
+    const { name, email, phone, address, jobProfileId, manager, joined, salary, profilePhoto } = req.body;
+    let next = { ...employee };
+    if (req.user.role === "admin") {
+      if (name) next.name = name;
+      if (email) {
+        const duplicate = db.prepare("SELECT id FROM employees WHERE email = ? AND id <> ?").get(email, employeeId);
+        const duplicateUser = db.prepare("SELECT employee_id FROM users WHERE email = ? AND employee_id <> ?").get(email, employeeId);
+        if (duplicate || duplicateUser) return res.status(409).json({ error: "Another employee already uses this email." });
+        next.email = email;
+      }
+      if (jobProfileId) {
+        const profile = db.prepare("SELECT * FROM job_profiles WHERE id = ?").get(jobProfileId);
+        if (!profile) return res.status(400).json({ error: "Select a valid job profile." });
+        next.title = profile.title;
+        next.department = profile.department;
+        next.skills_json = profile.skills_json;
+      }
+      if (manager) next.manager = manager;
+      if (joined) next.joined = joined;
+      if (salary) next.wage = Number(salary);
+    }
+
+    if (phone) next.phone = phone;
+    if (address) {
+      next.address = address;
+      next.location = address;
+    }
+    if (profilePhoto) {
+      next.profile_photo_url = saveUploadedFile(profilePhoto);
+    }
+
+    db.prepare(`
+      UPDATE employees
+      SET name = ?, email = ?, phone = ?, address = ?, title = ?, department = ?, location = ?, manager = ?, joined = ?, wage = ?, skills_json = ?, avatar = ?, profile_photo_url = ?
+      WHERE id = ?
+    `).run(
+      next.name,
+      next.email,
+      next.phone,
+      next.address,
+      next.title,
+      next.department,
+      next.location,
+      next.manager,
+      next.joined,
+      next.wage,
+      next.skills_json,
+      initialsFor(next.name),
+      next.profile_photo_url || "",
+      employeeId
+    );
+    if (req.user.role === "admin") {
+      db.prepare("UPDATE users SET email = ? WHERE employee_id = ?").run(next.email, employeeId);
+      refreshSalary(employeeId, Number(next.wage));
+    }
+    res.json({ employee: rowToEmployee(db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId)) });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 

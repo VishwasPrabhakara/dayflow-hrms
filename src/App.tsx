@@ -43,6 +43,8 @@ type Employee = {
   wage: number;
   avatar: string;
   profilePhotoUrl: string;
+  accountVerified: boolean | null;
+  mustChangePassword: boolean | null;
   skills: string[];
 };
 
@@ -122,6 +124,7 @@ function App() {
   const [jobProfiles, setJobProfiles] = useState<JobProfile[]>([]);
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
   const [credentials, setCredentials] = useState<EmployeeCredentials | null>(null);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [notice, setNotice] = useState("");
 
   async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -154,6 +157,7 @@ function App() {
     setPayroll(payrollRows);
     setJobProfiles(jobProfileRows);
     setDocuments(documentRows);
+    setSelectedEmployeeId((current) => current || employeeRows[0]?.id || "");
   }
 
   async function startSession(nextToken: string, nextUser: User) {
@@ -172,6 +176,7 @@ function App() {
     setPayroll([]);
     setJobProfiles([]);
     setDocuments([]);
+    setSelectedEmployeeId("");
     setNotice("");
   }
 
@@ -191,6 +196,15 @@ function App() {
       body: JSON.stringify({ status, adminComment }),
     });
     setNotice(`Document ${status.toLowerCase()}.`);
+    await loadWorkspace();
+  }
+
+  async function updateEmployee(employeeId: string, input: EmployeeUpdateForm) {
+    await api<{ employee: Employee }>(`/api/employees/${employeeId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
+    setNotice("Employee profile updated.");
     await loadWorkspace();
   }
 
@@ -230,7 +244,7 @@ function App() {
     await loadWorkspace();
   }
 
-  const selectedEmployee = employees[0];
+  const selectedEmployee = employees.find((employee) => employee.id === selectedEmployeeId) || employees[0];
   const summary = useMemo(() => {
     const present = attendance.filter((row) => row.status === "Present").length;
     const pending = leaves.filter((row) => row.status === "Pending").length;
@@ -295,6 +309,10 @@ function App() {
             jobProfiles={jobProfiles}
             documents={documents}
             onCreate={createEmployee}
+            onSelect={(employeeId) => {
+              setSelectedEmployeeId(employeeId);
+              setActive("profile");
+            }}
             onDocumentDecision={decideDocument}
           />
         )}
@@ -309,7 +327,17 @@ function App() {
         {active === "leaves" && (
           <LeavesView role={user.role} employees={employees} rows={leaves} onCreate={createLeave} onDecision={decideLeave} />
         )}
-        {active === "profile" && selectedEmployee && <ProfileView employee={selectedEmployee} role={user.role} documents={documents} onDocumentDecision={decideDocument} />}
+        {active === "profile" && selectedEmployee && (
+          <ProfileView
+            employee={selectedEmployee}
+            role={user.role}
+            employees={employees}
+            jobProfiles={jobProfiles}
+            documents={documents}
+            onUpdate={updateEmployee}
+            onDocumentDecision={decideDocument}
+          />
+        )}
         {active === "payroll" && <PayrollView role={user.role} rows={payroll} employee={selectedEmployee} />}
         {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} />}
       </section>
@@ -630,12 +658,25 @@ type EmployeeForm = {
   documents: UploadFile[];
 };
 
+type EmployeeUpdateForm = {
+  name?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  jobProfileId?: string;
+  manager?: string;
+  joined?: string;
+  salary?: number;
+  profilePhoto?: UploadFile;
+};
+
 function EmployeesView({
   employees,
   credentials,
   jobProfiles,
   documents,
   onCreate,
+  onSelect,
   onDocumentDecision,
 }: {
   employees: Employee[];
@@ -643,6 +684,7 @@ function EmployeesView({
   jobProfiles: JobProfile[];
   documents: EmployeeDocument[];
   onCreate: (input: EmployeeForm) => Promise<void>;
+  onSelect: (employeeId: string) => void;
   onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -717,12 +759,12 @@ function EmployeesView({
         )}
         <div className="cards">
           {employees.map((employee) => (
-            <article className="employee-card" key={employee.id}>
+            <button className="employee-card" key={employee.id} onClick={() => onSelect(employee.id)}>
               {employee.profilePhotoUrl ? <img className="avatar photo" src={employee.profilePhotoUrl} alt="" /> : <div className="avatar">{employee.avatar}</div>}
               <strong>{employee.name}</strong>
               <span>{employee.id}</span>
               <p>{employee.title} / {employee.department}</p>
-            </article>
+            </button>
           ))}
         </div>
       </div>
@@ -919,16 +961,85 @@ function LeavesView({
 function ProfileView({
   employee,
   role,
+  employees,
+  jobProfiles,
   documents,
+  onUpdate,
   onDocumentDecision,
 }: {
   employee: Employee;
   role: Role;
+  employees: Employee[];
+  jobProfiles: JobProfile[];
   documents: EmployeeDocument[];
+  onUpdate: (employeeId: string, input: EmployeeUpdateForm) => Promise<void>;
   onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => void;
 }) {
   const [comment, setComment] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [draft, setDraft] = useState({
+    name: employee.name,
+    email: employee.email,
+    phone: employee.phone,
+    address: employee.address,
+    jobProfileId: jobProfiles.find((profile) => profile.title === employee.title)?.id || jobProfiles[0]?.id || "",
+    manager: employee.manager,
+    joined: employee.joined,
+    salary: String(employee.wage),
+  });
+  const [profilePhoto, setProfilePhoto] = useState<UploadFile | undefined>();
   const ownDocuments = documents.filter((document) => document.employee_id === employee.id);
+  const managers = ["Nikhil Joshi", ...employees.filter((item) => item.id !== employee.id).map((item) => item.name)];
+  const onboarding = [
+    ["Profile created", true],
+    ["Login email sent", employee.mustChangePassword !== null],
+    ["Account activated", Boolean(employee.accountVerified) && !employee.mustChangePassword],
+    ["Documents uploaded", ownDocuments.length > 0],
+    ["Documents approved", ownDocuments.length > 0 && ownDocuments.every((document) => document.status === "Approved")],
+  ] as const;
+
+  useEffect(() => {
+    setDraft({
+      name: employee.name,
+      email: employee.email,
+      phone: employee.phone,
+      address: employee.address,
+      jobProfileId: jobProfiles.find((profile) => profile.title === employee.title)?.id || jobProfiles[0]?.id || "",
+      manager: employee.manager,
+      joined: employee.joined,
+      salary: String(employee.wage),
+    });
+    setProfilePhoto(undefined);
+    setError("");
+  }, [employee, jobProfiles]);
+
+  async function save() {
+    setError("");
+    setBusy(true);
+    try {
+      const payload: EmployeeUpdateForm =
+        role === "admin"
+          ? {
+              ...draft,
+              salary: Number(draft.salary),
+              profilePhoto,
+            }
+          : {
+              phone: draft.phone,
+              address: draft.address,
+              profilePhoto,
+            };
+      await onUpdate(employee.id, payload);
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update profile.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="grid-two">
       <div className="panel profile">
@@ -936,20 +1047,59 @@ function ProfileView({
         <h2>{employee.name}</h2>
         <p>{employee.title} / {employee.department}</p>
         <span>{employee.id}</span>
+        <button className="primary small" onClick={() => setEditing(!editing)}>{editing ? "Close Editor" : "Edit Profile"}</button>
       </div>
       <div className="panel">
-        <h2>Private Information</h2>
-        <DataTable
-          headers={["Field", "Value"]}
-          rows={[
-            ["Email", employee.email],
-            ["Phone", employee.phone],
-            ["Address", employee.address],
-            ["Manager", employee.manager],
-            ["Joined", employee.joined],
-            ["Edit Access", role === "admin" ? "All fields" : "Phone, address, profile picture"],
-          ]}
-        />
+        <div className="panel-head">
+          <div>
+            <p>{role === "admin" ? "Admin editable profile" : "Employee editable profile"}</p>
+            <h2>Private Information</h2>
+          </div>
+        </div>
+        {!editing ? (
+          <DataTable
+            headers={["Field", "Value"]}
+            rows={[
+              ["Email", employee.email],
+              ["Phone", employee.phone],
+              ["Address", employee.address],
+              ["Manager", employee.manager],
+              ["Joined", employee.joined],
+              ["Monthly Salary", currency(employee.wage)],
+              ["Edit Access", role === "admin" ? "All fields" : "Phone, address, profile picture"],
+            ]}
+          />
+        ) : (
+          <div className="form-grid compact">
+            {role === "admin" && <label><span>name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>}
+            {role === "admin" && <label><span>email</span><input value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>}
+            <label><span>phone</span><input value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></label>
+            <label className="wide"><span>address</span><input value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} /></label>
+            {role === "admin" && <label><span>job profile</span><select value={draft.jobProfileId} onChange={(event) => setDraft({ ...draft, jobProfileId: event.target.value })}>{jobProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.title}</option>)}</select></label>}
+            {role === "admin" && <label><span>manager</span><select value={draft.manager} onChange={(event) => setDraft({ ...draft, manager: event.target.value })}>{managers.map((manager) => <option key={manager}>{manager}</option>)}</select></label>}
+            {role === "admin" && <label><span>joining date</span><input type="date" value={draft.joined} onChange={(event) => setDraft({ ...draft, joined: event.target.value })} /></label>}
+            {role === "admin" && <label><span>monthly salary</span><input type="number" min="1" value={draft.salary} onChange={(event) => setDraft({ ...draft, salary: event.target.value })} /></label>}
+            <FileInput type="Profile Photo" accept="image/*" onPick={setProfilePhoto} />
+            {error && <div className="error wide">{error}</div>}
+            <button className="primary" disabled={busy} onClick={save}>{busy ? "Saving..." : "Save Profile"}</button>
+          </div>
+        )}
+      </div>
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <p>Completion</p>
+            <h2>Onboarding Status</h2>
+          </div>
+        </div>
+        <div className="checklist">
+          {onboarding.map(([label, done]) => (
+            <div className={done ? "done" : ""} key={label}>
+              {done ? <Check size={16} /> : <Clock3 size={16} />}
+              <span>{label}</span>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="panel">
         <h2>Documents & Skills</h2>
