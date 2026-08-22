@@ -2,6 +2,12 @@
 
 Dayflow is an 8-hour hackathon HRMS built for the Odoo x NMIT Bangalore Hackathon 2026 virtual round. It focuses on the core HR lifecycle: employee onboarding, secure role-based login, profile/document verification, attendance, time off, and attendance-linked payroll.
 
+## Deployment
+
+GitHub Pages: https://vishwasprabhakara.github.io/dayflow-hrms/
+
+Note: GitHub Pages hosts the static frontend. For the full HRMS workflow with OTP email, SQLite, uploads, approvals, and payroll APIs, run the Express backend locally with `npm run dev`.
+
 ## Features
 
 - Admin/HR and employee role-based workspace.
