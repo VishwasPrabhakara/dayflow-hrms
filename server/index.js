@@ -128,6 +128,57 @@ function writeLeaveAttendance(leave) {
   }
 }
 
+function workingDaysInMonth(month) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const cursor = new Date(Date.UTC(year, monthNumber - 1, 1));
+  let days = 0;
+  while (cursor.getUTCMonth() === monthNumber - 1) {
+    const day = cursor.getUTCDay();
+    if (day !== 0 && day !== 6) days += 1;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
+}
+
+function payrollFor(employee, month) {
+  const attendance = db.prepare("SELECT * FROM attendance WHERE employee_id = ? AND work_date LIKE ?").all(employee.id, `${month}%`);
+  const components = db.prepare("SELECT label, percent, amount FROM salary_components WHERE employee_id = ?").all(employee.id);
+  const presentDays = attendance.filter((row) => row.status === "Present").length;
+  const halfDays = attendance.filter((row) => row.status === "Half-day").length;
+  const leaveDays = attendance.filter((row) => row.status === "Leave").length;
+  const absentDays = attendance.filter((row) => row.status === "Absent").length;
+  const totalHours = attendance.reduce((sum, row) => sum + Number(row.work_hours || 0), 0);
+  const extraHours = attendance.reduce((sum, row) => sum + Number(row.extra_hours || 0), 0);
+  const workingDays = workingDaysInMonth(month);
+  const payableDays = Math.max(0, presentDays + leaveDays + halfDays * 0.5);
+  const unpaidDays = Math.max(0, absentDays + halfDays * 0.5);
+  const dailyRate = workingDays ? employee.wage / workingDays : 0;
+  const deduction = Math.round(dailyRate * unpaidDays);
+  const extraPay = Math.round((employee.wage / Math.max(1, workingDays * 8)) * extraHours);
+  const grossPay = Math.round(employee.wage + extraPay);
+  const netPay = Math.max(0, grossPay - deduction);
+  return {
+    employeeId: employee.id,
+    name: employee.name,
+    month,
+    salary: employee.wage,
+    workingDays,
+    presentDays,
+    halfDays,
+    leaveDays,
+    absentDays,
+    payableDays,
+    unpaidDays,
+    totalHours: Math.round(totalHours * 100) / 100,
+    extraHours: Math.round(extraHours * 100) / 100,
+    extraPay,
+    deduction,
+    grossPay,
+    netPay,
+    components,
+  };
+}
+
 function saveUploadedFile(file) {
   if (!file?.dataUrl || !file?.fileName || !file?.mimeType) throw new Error("Each upload needs a file name, type, and content.");
   const match = /^data:([^;]+);base64,(.+)$/.exec(file.dataUrl);
@@ -680,10 +731,11 @@ app.patch("/api/leaves/:id", requireAuth, requireAdmin, (req, res) => {
 
 app.get("/api/payroll", requireAuth, (req, res) => {
   const employeeId = req.user.role === "employee" ? req.user.employeeId : req.query.employeeId;
-  const rows = employeeId
-    ? db.prepare("SELECT * FROM salary_components WHERE employee_id = ?").all(employeeId)
-    : db.prepare("SELECT salary_components.*, employees.name FROM salary_components JOIN employees ON employees.id = salary_components.employee_id").all();
-  res.json(rows);
+  const month = req.query.month || new Date().toISOString().slice(0, 7);
+  const employees = employeeId
+    ? db.prepare("SELECT * FROM employees WHERE id = ?").all(employeeId)
+    : db.prepare("SELECT * FROM employees ORDER BY name").all();
+  res.json(employees.map((employee) => payrollFor(employee, month)));
 });
 
 const port = Number(process.env.API_PORT || 4000);

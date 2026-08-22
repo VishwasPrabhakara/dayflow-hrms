@@ -86,12 +86,30 @@ type LeaveBalance = {
 };
 
 type SalaryComponent = {
-  id: number;
-  employee_id: string;
-  name?: string;
   label: string;
   percent: number;
   amount: number;
+};
+
+type PayrollSlip = {
+  employeeId: string;
+  name: string;
+  month: string;
+  salary: number;
+  workingDays: number;
+  presentDays: number;
+  halfDays: number;
+  leaveDays: number;
+  absentDays: number;
+  payableDays: number;
+  unpaidDays: number;
+  totalHours: number;
+  extraHours: number;
+  extraPay: number;
+  deduction: number;
+  grossPay: number;
+  netPay: number;
+  components: SalaryComponent[];
 };
 
 type EmployeeCredentials = { id: string; emailed: boolean };
@@ -135,7 +153,7 @@ function App() {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
-  const [payroll, setPayroll] = useState<SalaryComponent[]>([]);
+  const [payroll, setPayroll] = useState<PayrollSlip[]>([]);
   const [jobProfiles, setJobProfiles] = useState<JobProfile[]>([]);
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
   const [credentials, setCredentials] = useState<EmployeeCredentials | null>(null);
@@ -366,7 +384,7 @@ function App() {
             onDocumentDecision={decideDocument}
           />
         )}
-        {active === "payroll" && <PayrollView role={user.role} rows={payroll} employee={selectedEmployee} />}
+        {active === "payroll" && <PayrollView role={user.role} rows={payroll} employees={employees} employee={selectedEmployee} token={token} />}
         {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} />}
       </section>
     </main>
@@ -1247,19 +1265,92 @@ function ProfileView({
   );
 }
 
-function PayrollView({ role, rows, employee }: { role: Role; rows: SalaryComponent[]; employee?: Employee }) {
+function PayrollView({
+  role,
+  rows,
+  employees,
+  employee,
+  token,
+}: {
+  role: Role;
+  rows: PayrollSlip[];
+  employees: Employee[];
+  employee?: Employee;
+  token: string;
+}) {
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [employeeId, setEmployeeId] = useState(employee?.id || "");
+  const [slips, setSlips] = useState(rows);
+
+  useEffect(() => {
+    setSlips(rows);
+    if (!employeeId && employee?.id) setEmployeeId(employee.id);
+  }, [employee?.id, employeeId, rows]);
+
+  async function recalculate(nextMonth = month, nextEmployeeId = employeeId) {
+    const query = new URLSearchParams({ month: nextMonth });
+    if (role === "admin" && nextEmployeeId) query.set("employeeId", nextEmployeeId);
+    const response = await fetch(`/api/payroll?${query.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+    setSlips(await response.json());
+  }
+
+  const selectedSlip = role === "admin"
+    ? slips.find((slip) => slip.employeeId === employeeId) || slips[0]
+    : slips[0];
+
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <div>
-          <p>{role === "admin" ? "Admin can update salary structure" : "Read only employee view"}</p>
-          <h2>{employee ? `${employee.name} Salary` : "Payroll"}</h2>
+    <section className="grid-two">
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <p>{role === "admin" ? "Attendance-linked payroll" : "Read only employee payslip"}</p>
+            <h2>{selectedSlip ? `${selectedSlip.name} Payslip` : "Payroll"}</h2>
+          </div>
         </div>
+        <div className="filter-bar">
+          {role === "admin" && (
+            <label><span>Employee</span><select value={employeeId} onChange={(event) => { setEmployeeId(event.target.value); recalculate(month, event.target.value); }}>{employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          )}
+          <label><span>Month</span><input type="month" value={month} onChange={(event) => { setMonth(event.target.value); recalculate(event.target.value, employeeId); }} /></label>
+        </div>
+        {selectedSlip && (
+          <>
+            <section className="metrics mini">
+              <Metric label="Gross Pay" value={currency(selectedSlip.grossPay)} />
+              <Metric label="Deductions" value={currency(selectedSlip.deduction)} />
+              <Metric label="Extra Pay" value={currency(selectedSlip.extraPay)} />
+              <Metric label="Net Pay" value={currency(selectedSlip.netPay)} />
+            </section>
+            <DataTable
+              headers={["Metric", "Value"]}
+              rows={[
+                ["Monthly Salary", currency(selectedSlip.salary)],
+                ["Working Days", selectedSlip.workingDays],
+                ["Present Days", selectedSlip.presentDays],
+                ["Leave Days", selectedSlip.leaveDays],
+                ["Half Days", selectedSlip.halfDays],
+                ["Absent Days", selectedSlip.absentDays],
+                ["Payable Days", selectedSlip.payableDays],
+                ["Unpaid Days", selectedSlip.unpaidDays],
+                ["Total Hours", selectedSlip.totalHours.toFixed(1)],
+                ["Extra Hours", selectedSlip.extraHours.toFixed(1)],
+              ]}
+            />
+          </>
+        )}
       </div>
-      <DataTable
-        headers={["Employee", "Component", "Percent", "Amount"]}
-        rows={rows.map((row) => [row.name || employee?.name || "-", row.label, `${row.percent}%`, currency(row.amount)])}
-      />
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <p>Salary structure</p>
+            <h2>Components</h2>
+          </div>
+        </div>
+        <DataTable
+          headers={["Component", "Percent", "Amount"]}
+          rows={(selectedSlip?.components || []).map((row) => [row.label, `${row.percent}%`, currency(row.amount)])}
+        />
+      </div>
     </section>
   );
 }
