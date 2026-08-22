@@ -375,6 +375,22 @@ function ensureAdminEmployeeRecords() {
     db.prepare("DELETE FROM salary_components WHERE employee_id = ?").run(duplicate.id);
     db.prepare("DELETE FROM employees WHERE id = ?").run(duplicate.id);
   }
+
+  const extraUsers = db.prepare("SELECT id, email FROM users WHERE employee_id = ? AND lower(email) <> 'hr@dayflow.local'").all(adminEmployee.id);
+  for (const user of extraUsers) {
+    const employee = db.prepare("SELECT id FROM employees WHERE id <> ? AND lower(email) = lower(?)").get(adminEmployee.id, user.email);
+    if (employee) db.prepare("UPDATE users SET role = 'employee', employee_id = ? WHERE id = ?").run(employee.id, user.id);
+    else db.prepare("DELETE FROM users WHERE id = ?").run(user.id);
+  }
 }
 
 ensureAdminEmployeeRecords();
+
+for (const user of db.prepare("SELECT id, email FROM users WHERE role = 'admin' AND lower(email) <> 'hr@dayflow.local'").all()) {
+  const employee = db.prepare("SELECT id FROM employees WHERE lower(email) = lower(?)").get(user.email);
+  if (employee) {
+    db.prepare("UPDATE users SET role = 'employee', employee_id = ? WHERE id = ?").run(employee.id, user.id);
+  } else {
+    db.prepare("DELETE FROM users WHERE id = ?").run(user.id);
+  }
+}

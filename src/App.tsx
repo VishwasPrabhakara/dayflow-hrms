@@ -1,6 +1,5 @@
 import {
   BarChart3,
-  BriefcaseBusiness,
   CalendarCheck,
   Check,
   Clock3,
@@ -625,12 +624,10 @@ function AdminProfile({
 
 function AuthScreen({ onSession, notice }: { onSession: (token: string, user: User) => void; notice?: string }) {
   const [mode, setMode] = useState<"admin" | "employee" | "signup" | "forgot">("admin");
-  const [signupRole, setSignupRole] = useState<Role>("employee");
   const [identifier, setIdentifier] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [name, setName] = useState("");
   const [otp, setOtp] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [error, setError] = useState("");
@@ -640,6 +637,8 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
     setMode(nextMode);
     setChallengeId("");
     setOtp("");
+    setPassword("");
+    setConfirmPassword("");
     setError("");
     setBusy(false);
   }
@@ -696,7 +695,7 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
       const response = await fetch("/api/auth/signup/request-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: signupRole, employeeId, name, email: identifier, password }),
+        body: JSON.stringify({ role: "employee", employeeId, email: identifier, password }),
       });
       const data = await response.json();
       if (!response.ok) return setError(data.error || "Unable to send OTP.");
@@ -795,16 +794,12 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
 
         {mode === "signup" && (
           <div className="role-select">
-            <button className={signupRole === "employee" ? "active" : ""} onClick={() => { setSignupRole("employee"); setChallengeId(""); }}>
+            <button className="active" onClick={() => setChallengeId("")}>
               <UserRound size={16} /> Employee
-            </button>
-            <button className={signupRole === "admin" ? "active" : ""} onClick={() => { setSignupRole("admin"); setChallengeId(""); }}>
-              <BriefcaseBusiness size={16} /> Admin / HR
             </button>
           </div>
         )}
-        {mode === "signup" && signupRole === "admin" && <Field label="Full Name" icon={UserRound} value={name} onChange={setName} />}
-        {mode === "signup" && signupRole === "employee" && (
+        {mode === "signup" && (
           <Field label="Employee ID" icon={Fingerprint} value={employeeId} onChange={(value) => setEmployeeId(value.toUpperCase())} />
         )}
         <Field label={mode === "employee" || mode === "forgot" ? "Employee ID or Email" : "Email"} icon={Mail} value={identifier} onChange={setIdentifier} />

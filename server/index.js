@@ -356,27 +356,12 @@ app.post("/api/auth/verify-login-otp", (req, res) => {
 
 app.post("/api/auth/signup/request-otp", async (req, res) => {
   try {
-    const { role = "admin", employeeId, name, email, password } = req.body;
-    if (!["admin", "employee"].includes(role)) return res.status(400).json({ error: "Choose a valid role." });
+    const { role = "employee", employeeId, email, password } = req.body;
+    if (role !== "employee") return res.status(403).json({ error: "Only the configured HR account can have Admin/HR access." });
     if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
     if (!isEmail(email)) return res.status(400).json({ error: "Enter a valid email address." });
     if (!validatePassword(password)) {
       return res.status(400).json({ error: "Password needs 8 characters, one capital letter, and one number." });
-    }
-
-    if (role === "admin") {
-      if (!name) return res.status(400).json({ error: "Name is required for Admin/HR signup." });
-      if (db.prepare("SELECT id FROM users WHERE email = ?").get(email)) {
-        return res.status(409).json({ error: "An account already exists for this email." });
-      }
-      return res.json(
-        await createOtpChallenge({
-          email,
-          purpose: "signup",
-          payload: { role, name, email, password },
-          name,
-        })
-      );
     }
 
     if (!employeeId) return res.status(400).json({ error: "Employee ID is required for employee signup." });
@@ -404,25 +389,19 @@ app.post("/api/auth/signup/request-otp", async (req, res) => {
 app.post("/api/auth/signup/verify", (req, res) => {
   try {
     const payload = verifyChallenge(req.body.challengeId, req.body.otp, "signup");
-    if (payload.role === "employee") {
-      const existingUser = db.prepare("SELECT id FROM users WHERE employee_id = ? OR email = ?").get(payload.employeeId, payload.email);
-      if (existingUser) {
-        db.prepare("UPDATE users SET email = ?, password_hash = ?, verified = 1, must_change_password = 0 WHERE id = ?").run(
-          payload.email,
-          hashPassword(payload.password),
-          existingUser.id
-        );
-      } else {
-        db.prepare(`
-          INSERT INTO users (role, employee_id, email, password_hash, verified, must_change_password)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run("employee", payload.employeeId, payload.email, hashPassword(payload.password), 1, 0);
-      }
+    if (payload.role !== "employee") return res.status(403).json({ error: "Only employee signup is allowed." });
+    const existingUser = db.prepare("SELECT id FROM users WHERE employee_id = ? OR email = ?").get(payload.employeeId, payload.email);
+    if (existingUser) {
+      db.prepare("UPDATE users SET email = ?, password_hash = ?, verified = 1, must_change_password = 0 WHERE id = ?").run(
+        payload.email,
+        hashPassword(payload.password),
+        existingUser.id
+      );
     } else {
       db.prepare(`
         INSERT INTO users (role, employee_id, email, password_hash, verified, must_change_password)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run("admin", null, payload.email, hashPassword(payload.password), 1, 0);
+      `).run("employee", payload.employeeId, payload.email, hashPassword(payload.password), 1, 0);
     }
     const user = db.prepare("SELECT * FROM users WHERE email = ?").get(payload.email);
     res.json(sessionFor(user));
