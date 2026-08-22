@@ -188,9 +188,11 @@ export function createEmployeeId(name) {
 }
 
 export function rowToEmployee(row) {
+  const port = Number(process.env.API_PORT || 4000);
+  const photoUrl = row.profile_photo_url || "";
   return {
     ...row,
-    profilePhotoUrl: row.profile_photo_url || "",
+    profilePhotoUrl: photoUrl && !/^https?:\/\//.test(photoUrl) ? `http://127.0.0.1:${port}${photoUrl}` : photoUrl,
     accountVerified: row.account_verified === undefined ? null : Boolean(row.account_verified),
     mustChangePassword: row.must_change_password === undefined ? null : Boolean(row.must_change_password),
     skills: JSON.parse(row.skills_json || "[]"),

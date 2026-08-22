@@ -220,6 +220,20 @@ button:disabled {
   font-weight: 900;
 }
 
+.danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  border: 1px solid rgba(169, 52, 40, 0.18);
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #ffe2df;
+  color: #a93428;
+  font-weight: 900;
+}
+
 .text-button {
   display: inline-flex;
   justify-content: center;
@@ -564,7 +578,9 @@ nav button:hover,
   text-align: center;
 }
 
-.profile .primary {
+.profile-actions {
+  display: grid;
+  gap: 8px;
   margin-top: 16px;
 }
 
@@ -968,6 +984,7 @@ button,
 a,
 input,
 select,
+.danger,
 .panel,
 .metric,
 .employee-card,
@@ -1048,7 +1065,8 @@ select,
 }
 
 .primary:hover:not(:disabled),
-.ghost:hover:not(:disabled) {
+.ghost:hover:not(:disabled),
+.danger:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
@@ -1060,8 +1078,15 @@ select,
   box-shadow: 0 10px 22px rgba(51, 65, 59, 0.08);
 }
 
+.danger:hover:not(:disabled) {
+  border-color: rgba(169, 52, 40, 0.34);
+  background: #ffd7d2;
+  box-shadow: 0 10px 22px rgba(169, 52, 40, 0.1);
+}
+
 .primary:active:not(:disabled),
 .ghost:active:not(:disabled),
+.danger:active:not(:disabled),
 .employee-card:active {
   transform: translateY(0);
 }

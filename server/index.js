@@ -1,6 +1,6 @@
 import "node:sqlite";
 import "./env.js";
-import { writeFileSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cors from "cors";
@@ -20,6 +20,13 @@ const attendanceStatuses = new Set(["Present", "Absent", "Half-day", "Leave"]);
 app.use(cors({ origin: "http://127.0.0.1:5173" }));
 app.use(express.json({ limit: "8mb" }));
 app.use("/uploads", express.static(join(__dirname, "..", "data", "uploads")));
+
+function publicUrl(path) {
+  if (!path) return "";
+  if (/^https?:\/\//.test(path)) return path;
+  const port = Number(process.env.API_PORT || 4000);
+  return `http://127.0.0.1:${port}${path.startsWith("/") ? path : `/${path}`}`;
+}
 
 function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
@@ -231,7 +238,19 @@ function saveUploadedFile(file) {
   const safeExt = extname(file.fileName).toLowerCase().replace(/[^.\w]/g, "") || ".bin";
   const storedName = `${randomToken()}${safeExt}`;
   writeFileSync(join(uploadsDir, storedName), buffer);
-  return `/uploads/${storedName}`;
+  return publicUrl(`/uploads/${storedName}`);
+}
+
+function removeStoredFile(fileUrl) {
+  if (!fileUrl) return;
+  try {
+    const url = new URL(fileUrl, "http://127.0.0.1");
+    if (!url.pathname.startsWith("/uploads/")) return;
+    const filePath = join(uploadsDir, url.pathname.replace("/uploads/", ""));
+    if (existsSync(filePath)) unlinkSync(filePath);
+  } catch {
+    return;
+  }
 }
 
 function insertDocument(employeeId, doc) {
@@ -244,6 +263,13 @@ function insertDocument(employeeId, doc) {
   if (doc.type === "Profile Photo") {
     db.prepare("UPDATE employees SET profile_photo_url = ? WHERE id = ?").run(fileUrl, employeeId);
   }
+}
+
+function rowToDocument(row) {
+  return {
+    ...row,
+    file_url: publicUrl(row.file_url),
+  };
 }
 
 function employeeByUser(user) {
@@ -492,7 +518,7 @@ app.get("/api/documents", requireAuth, (req, res) => {
     ? `SELECT employee_documents.*, employees.name FROM employee_documents JOIN employees ON employees.id = employee_documents.employee_id WHERE employee_id = ? ORDER BY uploaded_at DESC`
     : `SELECT employee_documents.*, employees.name FROM employee_documents JOIN employees ON employees.id = employee_documents.employee_id ORDER BY uploaded_at DESC`;
   const rows = employeeId ? db.prepare(sql).all(employeeId) : db.prepare(sql).all();
-  res.json(rows);
+  res.json(rows.map(rowToDocument));
 });
 
 app.get("/api/activity", requireAuth, requireAdmin, (req, res) => {
@@ -664,6 +690,31 @@ app.patch("/api/employees/:id", requireAuth, (req, res) => {
     logActivity(req.user, "updated profile", "employee", employeeId, req.user.role === "admin" ? "Admin profile update" : "Employee self-service update");
     res.json({ employee: rowToEmployee(db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId)) });
   } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete("/api/employees/:id", requireAuth, requireAdmin, (req, res) => {
+  try {
+    const employeeId = req.params.id;
+    const employee = db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId);
+    if (!employee) return res.status(404).json({ error: "Employee not found." });
+    const documents = db.prepare("SELECT file_url FROM employee_documents WHERE employee_id = ?").all(employeeId);
+    db.exec("BEGIN");
+    db.prepare("DELETE FROM otp_challenges WHERE email IN (SELECT email FROM users WHERE employee_id = ?)").run(employeeId);
+    db.prepare("DELETE FROM salary_components WHERE employee_id = ?").run(employeeId);
+    db.prepare("DELETE FROM attendance WHERE employee_id = ?").run(employeeId);
+    db.prepare("DELETE FROM leave_requests WHERE employee_id = ?").run(employeeId);
+    db.prepare("DELETE FROM employee_documents WHERE employee_id = ?").run(employeeId);
+    db.prepare("DELETE FROM users WHERE employee_id = ?").run(employeeId);
+    db.prepare("DELETE FROM employees WHERE id = ?").run(employeeId);
+    logActivity(req.user, "deleted employee", "employee", employeeId, employee.name);
+    db.exec("COMMIT");
+    for (const document of documents) removeStoredFile(document.file_url);
+    removeStoredFile(employee.profile_photo_url);
+    res.json({ ok: true });
+  } catch (error) {
+    db.exec("ROLLBACK");
     res.status(400).json({ error: error.message });
   }
 });

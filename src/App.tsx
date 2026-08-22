@@ -277,6 +277,16 @@ function App() {
     await loadWorkspace();
   }
 
+  async function deleteEmployee(employeeId: string) {
+    await api(`/api/employees/${employeeId}`, {
+      method: "DELETE",
+    });
+    setNotice("Employee deleted.");
+    setSelectedEmployeeId("");
+    setActive("employees");
+    await loadWorkspace();
+  }
+
   async function updateEmployee(employeeId: string, input: EmployeeUpdateForm) {
     await api<{ employee: Employee }>(`/api/employees/${employeeId}`, {
       method: "PATCH",
@@ -423,6 +433,7 @@ function App() {
             jobProfiles={jobProfiles}
             documents={documents}
             onUpdate={updateEmployee}
+            onDelete={deleteEmployee}
             onDocumentDecision={decideDocument}
             onDocumentUpload={uploadEmployeeDocument}
           />
@@ -1051,7 +1062,7 @@ function DocumentPanel({
               <strong>{document.name} / {document.type}</strong>
               <span>{document.file_name} / {document.status}</span>
             </div>
-            <a href={document.file_url} target="_blank" rel="noreferrer">Open</a>
+            <a href={document.file_url} target="_blank" rel="noreferrer noopener">Open</a>
             {role === "admin" && document.status === "Pending" && onDecision && (
               <div className="inline-actions full">
                 <input placeholder="Approval comment" value={comments[document.id] || ""} onChange={(event) => setComments({ ...comments, [document.id]: event.target.value })} />
@@ -1430,6 +1441,7 @@ function ProfileView({
   jobProfiles,
   documents,
   onUpdate,
+  onDelete,
   onDocumentDecision,
   onDocumentUpload,
 }: {
@@ -1439,11 +1451,13 @@ function ProfileView({
   jobProfiles: JobProfile[];
   documents: EmployeeDocument[];
   onUpdate: (employeeId: string, input: EmployeeUpdateForm) => Promise<void>;
+  onDelete: (employeeId: string) => Promise<void>;
   onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => Promise<void>;
   onDocumentUpload: (document: UploadFile) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState({
     name: employee.name,
@@ -1456,6 +1470,7 @@ function ProfileView({
     salary: String(employee.wage),
   });
   const [profilePhoto, setProfilePhoto] = useState<UploadFile | undefined>();
+  const profilePreview = profilePhoto?.dataUrl || employee.profilePhotoUrl;
   const ownDocuments = documents.filter((document) => document.employee_id === employee.id);
   const managers = ["Nikhil Joshi", ...employees.filter((item) => item.id !== employee.id).map((item) => item.name)];
   const onboarding = [
@@ -1506,14 +1521,29 @@ function ProfileView({
     }
   }
 
+  async function removeEmployee() {
+    if (!window.confirm(`Delete ${employee.name}? This removes their profile, login, attendance, leaves, payroll components, and documents from this local workspace.`)) return;
+    setError("");
+    setDeleting(true);
+    try {
+      await onDelete(employee.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete employee.");
+      setDeleting(false);
+    }
+  }
+
   return (
     <section className="grid-two">
       <div className="panel profile">
-        {employee.profilePhotoUrl ? <img className="avatar big photo" src={employee.profilePhotoUrl} alt="" /> : <div className="avatar big">{employee.avatar}</div>}
+        {profilePreview ? <img className="avatar big photo" src={profilePreview} alt="" /> : <div className="avatar big">{employee.avatar}</div>}
         <h2>{employee.name}</h2>
         <p>{employee.title} / {employee.department}</p>
         <span>{employee.id}</span>
-        <button className="primary small" onClick={() => setEditing(!editing)}>{editing ? "Close Editor" : "Edit Profile"}</button>
+        <div className="profile-actions">
+          <button className="primary small" onClick={() => setEditing(!editing)}>{editing ? "Close Editor" : "Edit Profile"}</button>
+          {role === "admin" && <button className="danger small" disabled={deleting} onClick={removeEmployee}>{deleting ? "Deleting..." : "Delete Employee"}</button>}
+        </div>
       </div>
       <div className="panel">
         <div className="panel-head">

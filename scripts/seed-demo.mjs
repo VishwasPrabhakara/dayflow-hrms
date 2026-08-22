@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { db, initialsFor, refreshSalary, uploadsDir } from "../server/db.js";
 import { hashPassword } from "../server/crypto.js";
 
+const apiPort = Number(process.env.API_PORT || 4000);
+
 const employees = [
   ["ODOME24004", "Meera Iyer", "meera@dayflow.local", "+91 90000 11122", "Whitefield, Bangalore", "QA Engineer", "Quality", "Bangalore", "Anika Rao", "2024-03-11", 62000, ["Test Cases", "Automation", "Bug Reports"]],
   ["ODORA25005", "Rohan Achar", "rohan@dayflow.local", "+91 90000 22233", "Hebbal, Bangalore", "Backend Engineer", "Engineering", "Bangalore", "Vishwas P", "2025-02-03", 82000, ["Node.js", "SQLite", "REST APIs"]],
@@ -62,7 +64,7 @@ function insertDocument(employeeId, type, status) {
   db.prepare(`
     INSERT INTO employee_documents (employee_id, type, file_name, mime_type, file_url, status, admin_comment)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(employeeId, type, fileName, "text/plain", `/uploads/${fileName}`, status, status === "Approved" ? "Verified for demo" : "");
+  `).run(employeeId, type, fileName, "text/plain", `http://127.0.0.1:${apiPort}/uploads/${fileName}`, status, status === "Approved" ? "Verified for demo" : "");
 }
 
 for (const employee of employees) insertEmployee(employee);
