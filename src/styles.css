@@ -212,6 +212,31 @@ button:disabled {
   line-height: 1.5;
 }
 
+.validation-box,
+.access-note,
+.calendar-strip {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #6b4b0f;
+}
+
+.validation-box {
+  display: grid;
+  margin-top: 12px;
+  font-size: 0.84rem;
+}
+
+.validation-box span,
+.calendar-strip span,
+.doc-row span,
+.mini-stack span {
+  color: #66756f;
+  font-size: 0.82rem;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
@@ -593,6 +618,32 @@ button:disabled {
   grid-column: span 2;
 }
 
+.segmented-row,
+.profile-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.segmented-row button,
+.profile-tabs button {
+  min-height: 34px;
+  border: 1px solid rgba(23, 32, 29, 0.12);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #52635d;
+  font-weight: 850;
+}
+
+.segmented-row button.active,
+.profile-tabs button.active {
+  border-color: #13665b;
+  background: #13665b;
+  color: #ffffff;
+}
+
 .employee-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -763,6 +814,25 @@ th {
   color: #66756f;
 }
 
+.mini-stack {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.mini-stack div {
+  padding: 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid rgba(23, 32, 29, 0.1);
+}
+
+.mini-stack strong,
+.mini-stack span {
+  display: block;
+}
+
 .request-list {
   display: grid;
   gap: 12px;
@@ -821,6 +891,16 @@ th {
   justify-content: space-between;
 }
 
+.calendar-strip {
+  align-items: center;
+  margin: 16px 0;
+}
+
+.calendar-strip strong,
+.calendar-strip span {
+  display: block;
+}
+
 .progress-track {
   height: 9px;
   overflow: hidden;
@@ -862,6 +942,12 @@ th {
   gap: 12px;
 }
 
+.security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .detail-item {
   min-height: 78px;
   padding: 14px;
@@ -874,6 +960,27 @@ th {
   display: block;
   margin-top: 8px;
   overflow-wrap: anywhere;
+}
+
+.document-list {
+  display: grid;
+  gap: 10px;
+}
+
+.doc-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid rgba(23, 32, 29, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.doc-row strong,
+.doc-row span {
+  display: block;
 }
 
 .skills-panel {
@@ -923,6 +1030,14 @@ th {
 .component-row small {
   color: #66756f;
   text-align: right;
+}
+
+.access-note {
+  align-items: center;
+  margin-bottom: 16px;
+  background: #e7eee9;
+  color: #24433d;
+  font-weight: 800;
 }
 
 .rule-box {
@@ -1022,9 +1137,15 @@ th {
   .employee-grid,
   .salary-summary,
   .detail-grid,
+  .security-grid,
   .inline-form,
   .employee-form,
   .leave-form {
+    grid-template-columns: 1fr;
+  }
+
+  .mini-stack,
+  .doc-row {
     grid-template-columns: 1fr;
   }
 

@@ -3,6 +3,7 @@ import {
   Building2,
   BriefcaseBusiness,
   CalendarCheck,
+  CalendarDays,
   Check,
   ChevronDown,
   Clock3,
@@ -24,6 +25,7 @@ import {
   Upload,
   UserRound,
   UsersRound,
+  WalletCards,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -33,6 +35,7 @@ type Role = "admin" | "employee";
 type View = "employees" | "attendance" | "timeoff" | "profile" | "salary";
 type AttendanceStatus = "present" | "leave" | "absent";
 type LeaveStatus = "Pending" | "Approved" | "Rejected";
+type AttendanceFilter = "all" | AttendanceStatus;
 
 type Employee = {
   id: string;
@@ -478,6 +481,7 @@ function App() {
 function AuthScreen({ onEnter }: { onEnter: () => void }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [showPassword, setShowPassword] = useState(false);
+  const [touched, setTouched] = useState(false);
   const [form, setForm] = useState({
     company: "Odoo India",
     name: "Vishwas P",
@@ -493,7 +497,10 @@ function AuthScreen({ onEnter }: { onEnter: () => void }) {
     .slice(0, 2)
     .toUpperCase();
   const loginId = `OD${initials || "VP"}260001`;
-  const valid = form.email.includes("@") && form.password.length >= 8;
+  const emailValid = form.email.includes("@") && form.email.includes(".");
+  const passwordValid = /^(?=.*[A-Z])(?=.*\d).{8,}$/.test(form.password);
+  const phoneValid = /^\+?\d[\d\s-]{7,}$/.test(form.phone);
+  const valid = emailValid && passwordValid && (mode === "signin" || (form.company.trim().length > 2 && phoneValid));
 
   function update(field: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -572,10 +579,25 @@ function AuthScreen({ onEnter }: { onEnter: () => void }) {
           </button>
         </label>
 
-        <button className="primary-button full auth-submit" disabled={!valid} onClick={onEnter}>
+        <button
+          className="primary-button full auth-submit"
+          disabled={!valid}
+          onClick={() => {
+            setTouched(true);
+            if (valid) onEnter();
+          }}
+        >
           <ShieldCheck size={17} />
           {mode === "signin" ? "Sign In" : "Create HR Workspace"}
         </button>
+        {touched && !valid && (
+          <div className="validation-box">
+            <strong>Validation required</strong>
+            <span>{emailValid ? "Email ok" : "Use a valid email address."}</span>
+            <span>{passwordValid ? "Password ok" : "Password needs 8 chars, 1 capital, and 1 number."}</span>
+            {mode === "signup" && <span>{phoneValid ? "Phone ok" : "Enter a valid phone number."}</span>}
+          </div>
+        )}
         <p className="auth-note">
           {mode === "signin"
             ? "Incorrect credentials will be validated before access."
@@ -757,7 +779,10 @@ function AttendanceView({
   selectedEmployee: Employee;
   onToggle: () => void;
 }) {
+  const [filter, setFilter] = useState<AttendanceFilter>("all");
   const isCheckedIn = selectedEmployee.status === "present" && selectedEmployee.checkOut === "--";
+  const filteredEmployees = filter === "all" ? employees : employees.filter((employee) => employee.status === filter);
+
   return (
     <section className="content-grid">
       <div className="panel wide">
@@ -770,6 +795,13 @@ function AttendanceView({
             <Fingerprint size={16} />
             {isCheckedIn ? "Checked in" : "Ready"}
           </div>
+        </div>
+        <div className="segmented-row">
+          {(["all", "present", "leave", "absent"] as AttendanceFilter[]).map((item) => (
+            <button className={filter === item ? "active" : ""} key={item} onClick={() => setFilter(item)}>
+              {item === "all" ? "All" : statusLabel[item]}
+            </button>
+          ))}
         </div>
         <div className="table-wrap">
           <table>
@@ -784,7 +816,7 @@ function AttendanceView({
               </tr>
             </thead>
             <tbody>
-              {employees.map((employee) => (
+              {filteredEmployees.map((employee) => (
                 <tr key={employee.id}>
                   <td>
                     <div className="person-cell">
@@ -811,6 +843,10 @@ function AttendanceView({
       <div className="panel action-panel">
         <p className="eyebrow">Self service</p>
         <h2>Mark attendance</h2>
+        <div className="mini-stack">
+          <div><span>Assigned source</span><strong>Self check-in</strong></div>
+          <div><span>Grace window</span><strong>15 min</strong></div>
+        </div>
         <div className="clock-face">
           <span>{selectedEmployee.checkIn === "--" ? "00:00" : selectedEmployee.checkIn}</span>
           <small>{selectedEmployee.name}</small>
@@ -846,6 +882,9 @@ function TimeOffView({
   });
   const visibleRequests = role === "employee" ? requests.filter((request) => request.employeeId === selfEmployee.id) : requests;
   const valid = draft.start <= draft.end && draft.note.trim().length > 3;
+  const approvedDays = visibleRequests
+    .filter((request) => request.status === "Approved")
+    .reduce((sum, request) => sum + request.allocation, 0);
 
   function submitRequest() {
     if (!valid) return;
@@ -918,6 +957,13 @@ function TimeOffView({
       <div className="panel balance-panel">
         <p className="eyebrow">Balances</p>
         <h2>Time-off types</h2>
+        <div className="calendar-strip">
+          <CalendarDays size={18} />
+          <div>
+            <strong>{approvedDays} approved days</strong>
+            <span>reflected in payroll basis</span>
+          </div>
+        </div>
         <Balance label="Paid Time Off" used={6} total={24} />
         <Balance label="Sick Leave" used={2} total={7} />
         <Balance label="Unpaid Leave" used={1} total={12} />
@@ -951,6 +997,7 @@ function ProfileView({
   onSave: (id: string, input: Partial<Employee>) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [profileTab, setProfileTab] = useState<"private" | "documents" | "security">("private");
   const [draft, setDraft] = useState({
     name: employee.name,
     title: employee.title,
@@ -1026,37 +1073,59 @@ function ProfileView({
             Resume
           </button>
         </div>
-        <div className="detail-grid">
-          {editing ? (
-            <>
-              {role === "admin" && (
-                <>
-                  <TextInput label="Name" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
-                  <TextInput label="Job Title" value={draft.title} onChange={(value) => setDraft({ ...draft, title: value })} />
-                  <TextInput label="Department" value={draft.department} onChange={(value) => setDraft({ ...draft, department: value })} />
-                  <TextInput label="Location" value={draft.location} onChange={(value) => setDraft({ ...draft, location: value })} />
-                  <TextInput label="Manager" value={draft.manager} onChange={(value) => setDraft({ ...draft, manager: value })} />
-                  <TextInput label="Monthly Wage" value={draft.wage} onChange={(value) => setDraft({ ...draft, wage: value })} />
-                </>
-              )}
-              <TextInput label="Email" value={draft.email} onChange={(value) => setDraft({ ...draft, email: value })} />
-              <TextInput label="Mobile" value={draft.phone} onChange={(value) => setDraft({ ...draft, phone: value })} />
-              <button className="primary-button span-two" onClick={saveProfile}>
-                <Save size={16} />
-                Save profile
-              </button>
-            </>
-          ) : (
-            <>
-              <Detail label="Email" value={employee.email} />
-              <Detail label="Mobile" value={employee.phone} />
-              <Detail label="Department" value={employee.department} />
-              <Detail label="Manager" value={employee.manager} />
-              <Detail label="Work Location" value={employee.location} />
-              <Detail label="Date of Joining" value={employee.joined} />
-            </>
-          )}
+        <div className="profile-tabs">
+          <button className={profileTab === "private" ? "active" : ""} onClick={() => setProfileTab("private")}>Private Info</button>
+          <button className={profileTab === "documents" ? "active" : ""} onClick={() => setProfileTab("documents")}>Documents</button>
+          <button className={profileTab === "security" ? "active" : ""} onClick={() => setProfileTab("security")}>Security</button>
         </div>
+        {profileTab === "private" && (
+          <div className="detail-grid">
+            {editing ? (
+              <>
+                {role === "admin" && (
+                  <>
+                    <TextInput label="Name" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+                    <TextInput label="Job Title" value={draft.title} onChange={(value) => setDraft({ ...draft, title: value })} />
+                    <TextInput label="Department" value={draft.department} onChange={(value) => setDraft({ ...draft, department: value })} />
+                    <TextInput label="Location" value={draft.location} onChange={(value) => setDraft({ ...draft, location: value })} />
+                    <TextInput label="Manager" value={draft.manager} onChange={(value) => setDraft({ ...draft, manager: value })} />
+                    <TextInput label="Monthly Wage" value={draft.wage} onChange={(value) => setDraft({ ...draft, wage: value })} />
+                  </>
+                )}
+                <TextInput label="Email" value={draft.email} onChange={(value) => setDraft({ ...draft, email: value })} />
+                <TextInput label="Mobile" value={draft.phone} onChange={(value) => setDraft({ ...draft, phone: value })} />
+                <button className="primary-button span-two" onClick={saveProfile}>
+                  <Save size={16} />
+                  Save profile
+                </button>
+              </>
+            ) : (
+              <>
+                <Detail label="Email" value={employee.email} />
+                <Detail label="Mobile" value={employee.phone} />
+                <Detail label="Department" value={employee.department} />
+                <Detail label="Manager" value={employee.manager} />
+                <Detail label="Work Location" value={employee.location} />
+                <Detail label="Date of Joining" value={employee.joined} />
+              </>
+            )}
+          </div>
+        )}
+        {profileTab === "documents" && (
+          <div className="document-list">
+            <DocRow title="Resume" detail="Uploaded / visible to HR" />
+            <DocRow title="Bank Proof" detail="Verified for payroll" />
+            <DocRow title="Identity Document" detail={role === "admin" ? "Admin can verify" : "Read only"} />
+          </div>
+        )}
+        {profileTab === "security" && (
+          <div className="security-grid">
+            <Detail label="Login ID" value={employee.id} />
+            <Detail label="Role Access" value={role === "admin" ? "Admin / HR Officer" : "Employee"} />
+            <Detail label="Password Policy" value="Strong password enforced" />
+            <Detail label="Last Login" value="22 Aug 2026, 09:04" />
+          </div>
+        )}
       </div>
       <div className="panel skills-panel">
         <p className="eyebrow">Profile depth</p>
@@ -1077,6 +1146,22 @@ function ProfileView({
         )}
       </div>
     </section>
+  );
+}
+
+function DocRow({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="doc-row">
+      <FileText size={18} />
+      <div>
+        <strong>{title}</strong>
+        <span>{detail}</span>
+      </div>
+      <button className="secondary-button">
+        <Upload size={15} />
+        Upload
+      </button>
+    </div>
   );
 }
 
@@ -1122,6 +1207,12 @@ function SalaryView({ employee, role }: { employee: Employee; role: Role }) {
             Slip
           </button>
         </div>
+        {role === "employee" && (
+          <div className="access-note">
+            <WalletCards size={18} />
+            Employees can view salary information in read-only mode. Admin controls salary structure.
+          </div>
+        )}
         <div className="salary-summary">
           <div>
             <span>Monthly wage</span>
