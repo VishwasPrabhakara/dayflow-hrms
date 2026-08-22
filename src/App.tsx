@@ -201,6 +201,13 @@ function managerOptions(employees: Employee[], excludeEmployeeId = "") {
   return [...managerNames].sort((a, b) => a.localeCompare(b));
 }
 
+function adminPayrollScore(employee: Employee) {
+  const text = `${employee.title} ${employee.department}`.toLowerCase();
+  if (text.includes("hr") || text.includes("people ops")) return 0;
+  if (text.includes("manager") || text.includes("lead") || text.includes("officer")) return 1;
+  return 2;
+}
+
 function App() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
@@ -1866,15 +1873,24 @@ function PayrollView({
   token: string;
 }) {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [employeeId, setEmployeeId] = useState(employee?.id || "");
+  const orderedEmployees = useMemo(
+    () => role === "admin"
+      ? [...employees].sort((a, b) => adminPayrollScore(a) - adminPayrollScore(b) || a.name.localeCompare(b.name))
+      : employees,
+    [employees, role]
+  );
+  const defaultPayrollEmployeeId = role === "admin" ? orderedEmployees[0]?.id || "" : employee?.id || "";
+  const [employeeId, setEmployeeId] = useState(defaultPayrollEmployeeId);
   const [slips, setSlips] = useState(rows);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     setSlips(rows);
-    if (!employeeId && employee?.id) setEmployeeId(employee.id);
-  }, [employee?.id, employeeId, rows]);
+    if (defaultPayrollEmployeeId && (!employeeId || role === "admin" && !orderedEmployees.some((item) => item.id === employeeId))) {
+      setEmployeeId(defaultPayrollEmployeeId);
+    }
+  }, [defaultPayrollEmployeeId, employeeId, orderedEmployees, role, rows]);
 
   async function recalculate(nextMonth = month, nextEmployeeId = employeeId) {
     const query = new URLSearchParams({ month: nextMonth });
@@ -1947,7 +1963,7 @@ function PayrollView({
         {error && <div className="error">{error}</div>}
         <div className="filter-bar">
           {role === "admin" && (
-            <label><span>Employee</span><select value={employeeId} onChange={(event) => { setEmployeeId(event.target.value); recalculate(month, event.target.value); }}>{employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label><span>Employee</span><select value={employeeId || defaultPayrollEmployeeId} onChange={(event) => { setEmployeeId(event.target.value); recalculate(month, event.target.value); }}>{orderedEmployees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           )}
           <label><span>Month</span><input type="month" value={month} onChange={(event) => { setMonth(event.target.value); recalculate(event.target.value, employeeId); }} /></label>
         </div>
