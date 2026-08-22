@@ -56,6 +56,9 @@ db.exec(`
     check_in TEXT,
     check_out TEXT,
     status TEXT NOT NULL CHECK(status IN ('Present','Absent','Half-day','Leave')),
+    work_hours REAL NOT NULL DEFAULT 0,
+    extra_hours REAL NOT NULL DEFAULT 0,
+    note TEXT DEFAULT '',
     UNIQUE(employee_id, work_date)
   );
 
@@ -109,6 +112,18 @@ function hasColumn(table, column) {
 
 if (!hasColumn("employees", "profile_photo_url")) {
   db.prepare("ALTER TABLE employees ADD COLUMN profile_photo_url TEXT DEFAULT ''").run();
+}
+
+if (!hasColumn("attendance", "work_hours")) {
+  db.prepare("ALTER TABLE attendance ADD COLUMN work_hours REAL NOT NULL DEFAULT 0").run();
+}
+
+if (!hasColumn("attendance", "extra_hours")) {
+  db.prepare("ALTER TABLE attendance ADD COLUMN extra_hours REAL NOT NULL DEFAULT 0").run();
+}
+
+if (!hasColumn("attendance", "note")) {
+  db.prepare("ALTER TABLE attendance ADD COLUMN note TEXT DEFAULT ''").run();
 }
 
 export function initialsFor(name) {

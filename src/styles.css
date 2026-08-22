@@ -330,6 +330,20 @@ nav button:hover,
   margin-bottom: 18px;
 }
 
+.metrics.mini {
+  margin: 14px 0;
+}
+
+.metrics.mini .metric {
+  min-height: 84px;
+  padding: 14px;
+}
+
+.metrics.mini .metric strong {
+  margin-top: 10px;
+  font-size: 1.05rem;
+}
+
 .metric {
   min-height: 110px;
   padding: 18px;
@@ -491,6 +505,37 @@ nav button:hover,
   width: 100%;
 }
 
+.filter-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f6faf8;
+}
+
+.filter-bar label {
+  display: grid;
+  gap: 7px;
+}
+
+.filter-bar span {
+  color: #66756f;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.filter-bar input,
+.filter-bar select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(23, 32, 29, 0.14);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fff;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -634,6 +679,7 @@ th {
 
   .tabs,
   .metrics,
+  .filter-bar,
   .cards,
   .form-grid,
   .form-grid.compact,

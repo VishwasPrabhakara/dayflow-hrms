@@ -56,6 +56,9 @@ type Attendance = {
   check_in: string | null;
   check_out: string | null;
   status: "Present" | "Absent" | "Half-day" | "Leave";
+  work_hours: number;
+  extra_hours: number;
+  note: string;
 };
 
 type LeaveRequest = {
@@ -217,12 +220,21 @@ function App() {
     setNotice("Password updated. Your account is ready.");
   }
 
-  async function markAttendance(employeeId?: string) {
+  async function markAttendance(employeeId?: string, action: "in" | "out" = "in") {
     await api("/api/attendance/check", {
       method: "POST",
-      body: JSON.stringify({ employeeId }),
+      body: JSON.stringify({ employeeId, action }),
     });
     setNotice("Attendance updated.");
+    await loadWorkspace();
+  }
+
+  async function markManualAttendance(input: ManualAttendanceForm) {
+    await api("/api/attendance/manual", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    setNotice("Attendance record saved.");
     await loadWorkspace();
   }
 
@@ -322,6 +334,7 @@ function App() {
             employees={employees}
             rows={attendance}
             onCheck={markAttendance}
+            onManual={markManualAttendance}
           />
         )}
         {active === "leaves" && (
@@ -856,38 +869,116 @@ function DocumentPanel({
   );
 }
 
+type ManualAttendanceForm = {
+  employeeId: string;
+  workDate: string;
+  checkIn: string;
+  checkOut: string;
+  status: "Present" | "Absent" | "Half-day" | "Leave";
+  note: string;
+};
+
 function AttendanceView({
   role,
   employees,
   rows,
   onCheck,
+  onManual,
 }: {
   role: Role;
   employees: Employee[];
   rows: Attendance[];
-  onCheck: (employeeId?: string) => void;
+  onCheck: (employeeId?: string, action?: "in" | "out") => void;
+  onManual: (input: ManualAttendanceForm) => void;
 }) {
   const [employeeId, setEmployeeId] = useState(employees[0]?.id || "");
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [status, setStatus] = useState("All");
+  const [draft, setDraft] = useState<ManualAttendanceForm>({
+    employeeId: employees[0]?.id || "",
+    workDate: new Date().toISOString().slice(0, 10),
+    checkIn: "09:00",
+    checkOut: "18:00",
+    status: "Present",
+    note: "",
+  });
+
+  useEffect(() => {
+    if (!employeeId && employees[0]) setEmployeeId(employees[0].id);
+    if (!draft.employeeId && employees[0]) setDraft((current) => ({ ...current, employeeId: employees[0].id }));
+  }, [draft.employeeId, employeeId, employees]);
+
+  const filteredRows = rows.filter((row) => {
+    const matchesEmployee = role === "employee" || !employeeId || row.employee_id === employeeId;
+    const matchesMonth = !month || row.work_date.startsWith(month);
+    const matchesStatus = status === "All" || row.status === status;
+    return matchesEmployee && matchesMonth && matchesStatus;
+  });
+  const summary = filteredRows.reduce(
+    (acc, row) => {
+      acc.totalHours += Number(row.work_hours || 0);
+      acc.extraHours += Number(row.extra_hours || 0);
+      acc[row.status] += 1;
+      return acc;
+    },
+    { Present: 0, "Half-day": 0, Absent: 0, Leave: 0, totalHours: 0, extraHours: 0 }
+  );
+
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <div>
-          <p>Daily and weekly basis</p>
-          <h2>Attendance</h2>
+    <section className="grid-two">
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <p>Daily and monthly basis</p>
+            <h2>Attendance</h2>
+          </div>
+          <div className="inline-actions">
+            {role === "admin" && (
+              <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>
+                {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+              </select>
+            )}
+            <button className="primary small" onClick={() => onCheck(role === "admin" ? employeeId : undefined, "in")}>Check In</button>
+            <button className="primary small" onClick={() => onCheck(role === "admin" ? employeeId : undefined, "out")}>Check Out</button>
+          </div>
         </div>
-        <div className="inline-actions">
+        <div className="filter-bar">
           {role === "admin" && (
-            <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>
-              {employees.map((employee) => <option key={employee.id}>{employee.id}</option>)}
-            </select>
+            <label><span>Employee</span><select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
           )}
-          <button className="primary small" onClick={() => onCheck(role === "admin" ? employeeId : undefined)}>Check In / Out</button>
+          <label><span>Month</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+          <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option>All</option><option>Present</option><option>Half-day</option><option>Absent</option><option>Leave</option></select></label>
         </div>
+        <section className="metrics mini">
+          <Metric label="Present" value={String(summary.Present)} />
+          <Metric label="Half Days" value={String(summary["Half-day"])} />
+          <Metric label="Leave / Absent" value={String(summary.Leave + summary.Absent)} />
+          <Metric label="Hours / Extra" value={`${summary.totalHours.toFixed(1)} / ${summary.extraHours.toFixed(1)}`} />
+        </section>
+        <DataTable
+          headers={["Employee", "Date", "Check In", "Check Out", "Status", "Hours", "Extra"]}
+          rows={filteredRows.map((row) => [row.name, row.work_date, row.check_in || "-", row.check_out || "-", row.status, Number(row.work_hours || 0).toFixed(1), Number(row.extra_hours || 0).toFixed(1)])}
+        />
       </div>
-      <DataTable
-        headers={["Employee", "Date", "Check In", "Check Out", "Status"]}
-        rows={rows.map((row) => [row.name, row.work_date, row.check_in || "-", row.check_out || "-", row.status])}
-      />
+      {role === "admin" && (
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p>HR adjustment</p>
+              <h2>Manual Marking</h2>
+            </div>
+          </div>
+          <div className="form-grid compact">
+            <label><span>employee</span><select value={draft.employeeId} onChange={(event) => setDraft({ ...draft, employeeId: event.target.value })}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
+            <label><span>date</span><input type="date" value={draft.workDate} onChange={(event) => setDraft({ ...draft, workDate: event.target.value })} /></label>
+            <label><span>check in</span><input type="time" value={draft.checkIn} onChange={(event) => setDraft({ ...draft, checkIn: event.target.value })} /></label>
+            <label><span>check out</span><input type="time" value={draft.checkOut} onChange={(event) => setDraft({ ...draft, checkOut: event.target.value })} /></label>
+            <label><span>status</span><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as ManualAttendanceForm["status"] })}><option>Present</option><option>Half-day</option><option>Absent</option><option>Leave</option></select></label>
+            <label><span>note</span><input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} /></label>
+            <button className="primary" onClick={() => onManual(draft)}>Save Attendance</button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

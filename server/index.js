@@ -53,6 +53,32 @@ function validatePassword(password) {
   return /^(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
 }
 
+function minutesFor(time) {
+  if (!time) return null;
+  const [hours, minutes] = time.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function attendanceTotals(checkIn, checkOut, preferredStatus = "Present") {
+  const start = minutesFor(checkIn);
+  const end = minutesFor(checkOut);
+  let workHours = 0;
+  if (start !== null && end !== null && end > start) {
+    workHours = Math.round(((end - start) / 60) * 100) / 100;
+  }
+  const status = ["Absent", "Leave"].includes(preferredStatus)
+    ? preferredStatus
+    : workHours > 0 && workHours < 6
+      ? "Half-day"
+      : preferredStatus;
+  return {
+    status,
+    workHours: ["Absent", "Leave"].includes(status) ? 0 : workHours,
+    extraHours: ["Absent", "Leave"].includes(status) ? 0 : Math.max(0, Math.round((workHours - 8) * 100) / 100),
+  };
+}
+
 function saveUploadedFile(file) {
   if (!file?.dataUrl || !file?.fileName || !file?.mimeType) throw new Error("Each upload needs a file name, type, and content.");
   const match = /^data:([^;]+);base64,(.+)$/.exec(file.dataUrl);
@@ -473,24 +499,77 @@ app.patch("/api/employees/:id", requireAuth, (req, res) => {
 
 app.get("/api/attendance", requireAuth, (req, res) => {
   const employeeId = req.user.role === "employee" ? req.user.employeeId : req.query.employeeId;
-  const sql = employeeId
-    ? `SELECT attendance.*, employees.name FROM attendance JOIN employees ON employees.id = attendance.employee_id WHERE employee_id = ? ORDER BY work_date DESC`
-    : `SELECT attendance.*, employees.name FROM attendance JOIN employees ON employees.id = attendance.employee_id ORDER BY work_date DESC`;
-  const rows = employeeId ? db.prepare(sql).all(employeeId) : db.prepare(sql).all();
+  const filters = [];
+  const values = [];
+  if (employeeId) {
+    filters.push("attendance.employee_id = ?");
+    values.push(employeeId);
+  }
+  if (req.query.month) {
+    filters.push("attendance.work_date LIKE ?");
+    values.push(`${req.query.month}%`);
+  }
+  if (req.query.status && req.query.status !== "All") {
+    filters.push("attendance.status = ?");
+    values.push(req.query.status);
+  }
+  const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+  const rows = db.prepare(`
+    SELECT attendance.*, employees.name
+    FROM attendance JOIN employees ON employees.id = attendance.employee_id
+    ${where}
+    ORDER BY work_date DESC, employees.name ASC
+  `).all(...values);
   res.json(rows);
 });
 
 app.post("/api/attendance/check", requireAuth, (req, res) => {
+  try {
   const employeeId = req.user.role === "employee" ? req.user.employeeId : req.body.employeeId;
   if (!employeeId) return res.status(400).json({ error: "Employee is required." });
   const today = new Date().toISOString().slice(0, 10);
   const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const action = req.body.action === "out" ? "out" : "in";
   const existing = db.prepare("SELECT * FROM attendance WHERE employee_id = ? AND work_date = ?").get(employeeId, today);
-  if (!existing) {
-    db.prepare("INSERT INTO attendance (employee_id, work_date, check_in, status) VALUES (?, ?, ?, ?)").run(employeeId, today, time, "Present");
-  } else if (!existing.check_out) {
-    db.prepare("UPDATE attendance SET check_out = ? WHERE id = ?").run(time, existing.id);
+  if (action === "in") {
+    if (existing?.check_in) return res.status(409).json({ error: "Already checked in for today." });
+    db.prepare("INSERT INTO attendance (employee_id, work_date, check_in, status, note) VALUES (?, ?, ?, ?, ?)").run(employeeId, today, time, "Present", "Self check-in");
+    return res.json({ ok: true });
   }
+  if (!existing?.check_in) return res.status(400).json({ error: "Check in before checking out." });
+  if (existing.check_out) return res.status(409).json({ error: "Already checked out for today." });
+  const totals = attendanceTotals(existing.check_in, time, "Present");
+  db.prepare("UPDATE attendance SET check_out = ?, status = ?, work_hours = ?, extra_hours = ?, note = ? WHERE id = ?").run(
+    time,
+    totals.status,
+    totals.workHours,
+    totals.extraHours,
+    "Self check-out",
+    existing.id
+  );
+  res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post("/api/attendance/manual", requireAuth, requireAdmin, (req, res) => {
+  const { employeeId, workDate, checkIn, checkOut, status, note } = req.body;
+  if (!employeeId || !workDate || !status) return res.status(400).json({ error: "Employee, date, and status are required." });
+  if (!["Present", "Absent", "Half-day", "Leave"].includes(status)) return res.status(400).json({ error: "Invalid attendance status." });
+  if (!db.prepare("SELECT id FROM employees WHERE id = ?").get(employeeId)) return res.status(404).json({ error: "Employee not found." });
+  const totals = attendanceTotals(checkIn, checkOut, status);
+  db.prepare(`
+    INSERT INTO attendance (employee_id, work_date, check_in, check_out, status, work_hours, extra_hours, note)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(employee_id, work_date) DO UPDATE SET
+      check_in = excluded.check_in,
+      check_out = excluded.check_out,
+      status = excluded.status,
+      work_hours = excluded.work_hours,
+      extra_hours = excluded.extra_hours,
+      note = excluded.note
+  `).run(employeeId, workDate, checkIn || null, checkOut || null, totals.status, totals.workHours, totals.extraHours, note || "Marked by HR");
   res.json({ ok: true });
 });
 
