@@ -4,13 +4,9 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
-    disk:
-      name: dayflow-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: DATA_DIR
-        value: /data
+        value: /tmp/dayflow-data
       - key: HOST
         value: 0.0.0.0
       - key: CLIENT_URL

@@ -21,7 +21,7 @@ Set these Render environment variables:
 
 ```env
 CLIENT_URL=https://vishwasprabhakara.github.io
-DATA_DIR=/data
+DATA_DIR=/tmp/dayflow-data
 HOST=0.0.0.0
 GMAIL_USER=your-gmail-address@gmail.com
 GMAIL_APP_PASSWORD=your-gmail-app-password
