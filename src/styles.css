@@ -480,15 +480,19 @@ nav button:hover,
 }
 
 .reports-grid {
-  gap: 12px;
+  gap: 4px;
 }
 
 .reports-grid .panel {
-  padding: 16px;
+  padding: 14px;
+}
+
+.reports-grid .report-activity-panel {
+  grid-column: 1 / -1;
 }
 
 .reports-grid .panel-head {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .reports-grid .metrics.mini {

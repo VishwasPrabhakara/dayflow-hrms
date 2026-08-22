@@ -2173,20 +2173,19 @@ function ReportsView({
         <div className="panel">
           <div className="panel-head">
             <div>
-              <p>Audit trail</p>
-              <h2>Recent Activity</h2>
+              <p>Payroll liability</p>
+              <h2>Payroll</h2>
             </div>
           </div>
           <DataTable
-            headers={["Time", "Actor", "Action", "Entity", "Detail"]}
-            empty="No activity has been recorded yet."
-            rows={activity.slice(0, 8).map((row) => [
-              new Date(row.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
-              row.actor_email,
-              row.action,
-              `${row.entity_type} / ${row.entity_id}`,
-              row.detail || "-",
-            ])}
+            headers={["Metric", "Value"]}
+            rows={[
+              ["Gross Payroll", currency(payrollSummary.gross)],
+              ["Deductions", currency(payrollSummary.deductions)],
+              ["Net Payout", currency(payrollSummary.net)],
+              ["Highest Net Pay", topPayroll ? `${topPayroll.name} / ${currency(topPayroll.netPay)}` : "-"],
+              ["Lowest Net Pay", lowestPayroll ? `${lowestPayroll.name} / ${currency(lowestPayroll.netPay)}` : "-"],
+            ]}
           />
         </div>
         <div className="panel">
@@ -2206,22 +2205,23 @@ function ReportsView({
             ]}
           />
         </div>
-        <div className="panel">
+        <div className="panel report-activity-panel">
           <div className="panel-head">
             <div>
-              <p>Payroll liability</p>
-              <h2>Payroll</h2>
+              <p>Audit trail</p>
+              <h2>Recent Activity</h2>
             </div>
           </div>
           <DataTable
-            headers={["Metric", "Value"]}
-            rows={[
-              ["Gross Payroll", currency(payrollSummary.gross)],
-              ["Deductions", currency(payrollSummary.deductions)],
-              ["Net Payout", currency(payrollSummary.net)],
-              ["Highest Net Pay", topPayroll ? `${topPayroll.name} / ${currency(topPayroll.netPay)}` : "-"],
-              ["Lowest Net Pay", lowestPayroll ? `${lowestPayroll.name} / ${currency(lowestPayroll.netPay)}` : "-"],
-            ]}
+            headers={["Time", "Actor", "Action", "Entity", "Detail"]}
+            empty="No activity has been recorded yet."
+            rows={activity.slice(0, 8).map((row) => [
+              new Date(row.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+              row.actor_email,
+              row.action,
+              `${row.entity_type} / ${row.entity_id}`,
+              row.detail || "-",
+            ])}
           />
         </div>
       </section>
