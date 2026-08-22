@@ -513,6 +513,11 @@ nav button:hover,
 .reports-grid th,
 .reports-grid td {
   padding: 10px 11px;
+  white-space: normal;
+}
+
+.reports-grid table {
+  min-width: 0;
 }
 
 .panel {
