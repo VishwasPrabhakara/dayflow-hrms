@@ -6,8 +6,10 @@ import { hashPassword } from "./crypto.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 mkdirSync(join(__dirname, "..", "data"), { recursive: true });
+mkdirSync(join(__dirname, "..", "data", "uploads"), { recursive: true });
 
 export const db = new DatabaseSync(join(__dirname, "..", "data", "dayflow.sqlite"));
+export const uploadsDir = join(__dirname, "..", "data", "uploads");
 
 db.exec(`
   PRAGMA foreign_keys = ON;
@@ -25,7 +27,15 @@ db.exec(`
     joined TEXT NOT NULL,
     wage INTEGER NOT NULL,
     skills_json TEXT NOT NULL,
-    avatar TEXT NOT NULL
+    avatar TEXT NOT NULL,
+    profile_photo_url TEXT DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS job_profiles (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    department TEXT NOT NULL,
+    skills_json TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS users (
@@ -79,7 +89,27 @@ db.exec(`
     expires_at INTEGER NOT NULL,
     used INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS employee_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id TEXT NOT NULL REFERENCES employees(id),
+    type TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_url TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('Pending','Approved','Rejected')) DEFAULT 'Pending',
+    admin_comment TEXT DEFAULT '',
+    uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `);
+
+function hasColumn(table, column) {
+  return db.prepare(`PRAGMA table_info(${table})`).all().some((row) => row.name === column);
+}
+
+if (!hasColumn("employees", "profile_photo_url")) {
+  db.prepare("ALTER TABLE employees ADD COLUMN profile_photo_url TEXT DEFAULT ''").run();
+}
 
 export function initialsFor(name) {
   return name
@@ -119,8 +149,24 @@ export function createEmployeeId(name) {
 export function rowToEmployee(row) {
   return {
     ...row,
+    profilePhotoUrl: row.profile_photo_url || "",
     skills: JSON.parse(row.skills_json || "[]"),
   };
+}
+
+const jobProfiles = [
+  { id: "frontend-engineer", title: "Frontend Engineer", department: "Product", skills: ["React", "TypeScript", "UI Systems", "API Integration"] },
+  { id: "backend-engineer", title: "Backend Engineer", department: "Engineering", skills: ["Node.js", "SQLite", "REST APIs", "Security"] },
+  { id: "hr-officer", title: "HR Officer", department: "People Ops", skills: ["Hiring", "Onboarding", "Compliance", "Payroll"] },
+  { id: "payroll-specialist", title: "Payroll Specialist", department: "Finance", skills: ["Salary Structuring", "Tax", "PF/ESI", "Reporting"] },
+  { id: "qa-engineer", title: "QA Engineer", department: "Quality", skills: ["Test Cases", "Automation", "Bug Reports", "Regression"] },
+];
+
+if (db.prepare("SELECT COUNT(*) AS count FROM job_profiles").get().count === 0) {
+  const insertProfile = db.prepare("INSERT INTO job_profiles (id, title, department, skills_json) VALUES (?, ?, ?, ?)");
+  for (const profile of jobProfiles) {
+    insertProfile.run(profile.id, profile.title, profile.department, JSON.stringify(profile.skills));
+  }
 }
 
 if (db.prepare("SELECT COUNT(*) AS count FROM employees").get().count === 0) {

@@ -42,6 +42,7 @@ type Employee = {
   joined: string;
   wage: number;
   avatar: string;
+  profilePhotoUrl: string;
   skills: string[];
 };
 
@@ -78,6 +79,20 @@ type SalaryComponent = {
 };
 
 type EmployeeCredentials = { id: string; emailed: boolean };
+type UploadFile = { type: string; fileName: string; mimeType: string; dataUrl: string };
+type JobProfile = { id: string; title: string; department: string; skills: string[] };
+type EmployeeDocument = {
+  id: number;
+  employee_id: string;
+  name: string;
+  type: string;
+  file_name: string;
+  mime_type: string;
+  file_url: string;
+  status: "Pending" | "Approved" | "Rejected";
+  admin_comment: string;
+  uploaded_at: string;
+};
 
 const navItems = [
   ["employees", "Employees", UsersRound],
@@ -104,6 +119,8 @@ function App() {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [payroll, setPayroll] = useState<SalaryComponent[]>([]);
+  const [jobProfiles, setJobProfiles] = useState<JobProfile[]>([]);
+  const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
   const [credentials, setCredentials] = useState<EmployeeCredentials | null>(null);
   const [notice, setNotice] = useState("");
 
@@ -123,16 +140,20 @@ function App() {
 
   async function loadWorkspace(authToken = token) {
     const headers = { Authorization: `Bearer ${authToken}` };
-    const [employeeRows, attendanceRows, leaveRows, payrollRows] = await Promise.all([
+    const [employeeRows, attendanceRows, leaveRows, payrollRows, jobProfileRows, documentRows] = await Promise.all([
       fetch("/api/employees", { headers }).then((r) => r.json()),
       fetch("/api/attendance", { headers }).then((r) => r.json()),
       fetch("/api/leaves", { headers }).then((r) => r.json()),
       fetch("/api/payroll", { headers }).then((r) => r.json()),
+      fetch("/api/job-profiles", { headers }).then((r) => r.json()),
+      fetch("/api/documents", { headers }).then((r) => r.json()),
     ]);
     setEmployees(employeeRows);
     setAttendance(attendanceRows);
     setLeaves(leaveRows);
     setPayroll(payrollRows);
+    setJobProfiles(jobProfileRows);
+    setDocuments(documentRows);
   }
 
   async function startSession(nextToken: string, nextUser: User) {
@@ -149,6 +170,8 @@ function App() {
     setAttendance([]);
     setLeaves([]);
     setPayroll([]);
+    setJobProfiles([]);
+    setDocuments([]);
     setNotice("");
   }
 
@@ -159,6 +182,15 @@ function App() {
     });
     setCredentials(result.credentials);
     setNotice("Employee account created and login instructions were emailed.");
+    await loadWorkspace();
+  }
+
+  async function decideDocument(id: number, status: "Approved" | "Rejected", adminComment: string) {
+    await api(`/api/documents/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, adminComment }),
+    });
+    setNotice(`Document ${status.toLowerCase()}.`);
     await loadWorkspace();
   }
 
@@ -257,7 +289,14 @@ function App() {
         </section>
 
         {active === "employees" && user.role === "admin" && (
-          <EmployeesView employees={employees} credentials={credentials} onCreate={createEmployee} />
+          <EmployeesView
+            employees={employees}
+            credentials={credentials}
+            jobProfiles={jobProfiles}
+            documents={documents}
+            onCreate={createEmployee}
+            onDocumentDecision={decideDocument}
+          />
         )}
         {active === "attendance" && (
           <AttendanceView
@@ -270,7 +309,7 @@ function App() {
         {active === "leaves" && (
           <LeavesView role={user.role} employees={employees} rows={leaves} onCreate={createLeave} onDecision={decideLeave} />
         )}
-        {active === "profile" && selectedEmployee && <ProfileView employee={selectedEmployee} role={user.role} />}
+        {active === "profile" && selectedEmployee && <ProfileView employee={selectedEmployee} role={user.role} documents={documents} onDocumentDecision={decideDocument} />}
         {active === "payroll" && <PayrollView role={user.role} rows={payroll} employee={selectedEmployee} />}
         {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} />}
       </section>
@@ -584,23 +623,27 @@ type EmployeeForm = {
   email: string;
   phone: string;
   address: string;
-  title: string;
-  department: string;
-  location: string;
+  jobProfileId: string;
   manager: string;
   joined: string;
-  wage: number;
-  skills: string[];
+  salary: number;
+  documents: UploadFile[];
 };
 
 function EmployeesView({
   employees,
   credentials,
+  jobProfiles,
+  documents,
   onCreate,
+  onDocumentDecision,
 }: {
   employees: Employee[];
   credentials: EmployeeCredentials | null;
-  onCreate: (input: EmployeeForm) => void;
+  jobProfiles: JobProfile[];
+  documents: EmployeeDocument[];
+  onCreate: (input: EmployeeForm) => Promise<void>;
+  onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState({
@@ -608,22 +651,28 @@ function EmployeesView({
     email: "",
     phone: "",
     address: "",
-    title: "",
-    department: "",
-    location: "",
-    manager: "",
+    jobProfileId: "",
+    manager: "Nikhil Joshi",
     joined: new Date().toISOString().slice(0, 10),
-    wage: "50000",
-    skills: "",
+    salary: "50000",
   });
+  const [uploads, setUploads] = useState<Record<string, UploadFile | null>>({});
+  const [comment, setComment] = useState("");
+  const selectedProfile = jobProfiles.find((profile) => profile.id === draft.jobProfileId) || jobProfiles[0];
+  const managers = ["Nikhil Joshi", ...employees.map((employee) => employee.name)];
 
-  function submit() {
-    onCreate({
+  useEffect(() => {
+    if (!draft.jobProfileId && jobProfiles[0]) setDraft((current) => ({ ...current, jobProfileId: jobProfiles[0].id }));
+  }, [draft.jobProfileId, jobProfiles]);
+
+  async function submit() {
+    await onCreate({
       ...draft,
-      wage: Number(draft.wage),
-      skills: draft.skills.split(",").map((skill) => skill.trim()).filter(Boolean),
+      salary: Number(draft.salary),
+      documents: Object.values(uploads).filter(Boolean) as UploadFile[],
     });
     setOpen(false);
+    setUploads({});
   }
 
   return (
@@ -643,19 +692,33 @@ function EmployeesView({
         )}
         {open && (
           <div className="form-grid">
-            {Object.keys(draft).map((key) => (
-              <label key={key}>
-                <span>{key}</span>
-                <input value={draft[key as keyof typeof draft]} onChange={(event) => setDraft({ ...draft, [key]: event.target.value })} />
-              </label>
-            ))}
+            <label><span>name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+            <label><span>email</span><input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+            <label><span>phone</span><input value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></label>
+            <label className="wide"><span>address</span><input value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} /></label>
+            <label><span>job profile</span><select value={draft.jobProfileId} onChange={(event) => setDraft({ ...draft, jobProfileId: event.target.value })}>{jobProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.title}</option>)}</select></label>
+            <label><span>manager</span><select value={draft.manager} onChange={(event) => setDraft({ ...draft, manager: event.target.value })}>{managers.map((manager) => <option key={manager}>{manager}</option>)}</select></label>
+            <label><span>joining date</span><input type="date" value={draft.joined} onChange={(event) => setDraft({ ...draft, joined: event.target.value })} /></label>
+            <label><span>monthly salary</span><input type="number" min="1" value={draft.salary} onChange={(event) => setDraft({ ...draft, salary: event.target.value })} /></label>
+            {selectedProfile && (
+              <div className="selection-summary">
+                <strong>{selectedProfile.department}</strong>
+                <div className="tags">{selectedProfile.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
+              </div>
+            )}
+            <FileInput type="Profile Photo" accept="image/*" onPick={(file) => setUploads({ ...uploads, "Profile Photo": file })} />
+            <FileInput type="Resume" accept=".pdf,.doc,.docx" onPick={(file) => setUploads({ ...uploads, Resume: file })} />
+            <FileInput type="ID Proof" accept=".pdf,image/*" onPick={(file) => setUploads({ ...uploads, "ID Proof": file })} />
+            <FileInput type="Bank Proof" accept=".pdf,image/*" onPick={(file) => setUploads({ ...uploads, "Bank Proof": file })} />
+            <FileInput type="Offer Letter" accept=".pdf,.doc,.docx" onPick={(file) => setUploads({ ...uploads, "Offer Letter": file })} />
+            <FileInput type="Education Certificate" accept=".pdf,image/*" onPick={(file) => setUploads({ ...uploads, "Education Certificate": file })} />
             <button className="primary" onClick={submit}>Create Employee Account</button>
           </div>
         )}
         <div className="cards">
           {employees.map((employee) => (
             <article className="employee-card" key={employee.id}>
-              <div className="avatar">{employee.avatar}</div>
+              {employee.profilePhotoUrl ? <img className="avatar photo" src={employee.profilePhotoUrl} alt="" /> : <div className="avatar">{employee.avatar}</div>}
               <strong>{employee.name}</strong>
               <span>{employee.id}</span>
               <p>{employee.title} / {employee.department}</p>
@@ -663,7 +726,91 @@ function EmployeesView({
           ))}
         </div>
       </div>
+      <DocumentPanel documents={documents} role="admin" onDecision={onDocumentDecision} comment={comment} onComment={setComment} />
     </section>
+  );
+}
+
+function fileToUpload(file: File, type: string): Promise<UploadFile> {
+  return new Promise((resolve, reject) => {
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error("Each file must be 5 MB or smaller."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve({ type, fileName: file.name, mimeType: file.type || "application/octet-stream", dataUrl: String(reader.result) });
+    reader.onerror = () => reject(new Error("Could not read the selected file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function FileInput({ type, accept, onPick }: { type: string; accept: string; onPick: (file: UploadFile) => void }) {
+  const [fileName, setFileName] = useState("");
+  const [error, setError] = useState("");
+
+  async function pick(file?: File) {
+    setError("");
+    if (!file) return;
+    try {
+      const upload = await fileToUpload(file, type);
+      setFileName(file.name);
+      onPick(upload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid file.");
+    }
+  }
+
+  return (
+    <label className="file-field">
+      <span>{type}</span>
+      <input type="file" accept={accept} onChange={(event) => pick(event.target.files?.[0])} />
+      <strong>{fileName || "Choose file"}</strong>
+      {error && <small>{error}</small>}
+    </label>
+  );
+}
+
+function DocumentPanel({
+  documents,
+  role,
+  onDecision,
+  comment,
+  onComment,
+}: {
+  documents: EmployeeDocument[];
+  role: Role;
+  onDecision?: (id: number, status: "Approved" | "Rejected", comment: string) => void;
+  comment?: string;
+  onComment?: (comment: string) => void;
+}) {
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <div>
+          <p>{role === "admin" ? "Verification queue" : "My uploads"}</p>
+          <h2>Documents</h2>
+        </div>
+      </div>
+      <div className="request-list">
+        {documents.length === 0 && <div className="empty">No documents uploaded yet.</div>}
+        {documents.map((document) => (
+          <article className="request document-row" key={document.id}>
+            <div>
+              <strong>{document.name} / {document.type}</strong>
+              <span>{document.file_name} / {document.status}</span>
+            </div>
+            <a href={document.file_url} target="_blank" rel="noreferrer">Open</a>
+            {role === "admin" && document.status === "Pending" && onDecision && (
+              <div className="inline-actions full">
+                <input placeholder="Approval comment" value={comment || ""} onChange={(event) => onComment?.(event.target.value)} />
+                <button onClick={() => onDecision(document.id, "Approved", comment || "")}><Check size={16} /></button>
+                <button onClick={() => onDecision(document.id, "Rejected", comment || "")}><X size={16} /></button>
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -769,11 +916,23 @@ function LeavesView({
   );
 }
 
-function ProfileView({ employee, role }: { employee: Employee; role: Role }) {
+function ProfileView({
+  employee,
+  role,
+  documents,
+  onDocumentDecision,
+}: {
+  employee: Employee;
+  role: Role;
+  documents: EmployeeDocument[];
+  onDocumentDecision: (id: number, status: "Approved" | "Rejected", comment: string) => void;
+}) {
+  const [comment, setComment] = useState("");
+  const ownDocuments = documents.filter((document) => document.employee_id === employee.id);
   return (
     <section className="grid-two">
       <div className="panel profile">
-        <div className="avatar big">{employee.avatar}</div>
+        {employee.profilePhotoUrl ? <img className="avatar big photo" src={employee.profilePhotoUrl} alt="" /> : <div className="avatar big">{employee.avatar}</div>}
         <h2>{employee.name}</h2>
         <p>{employee.title} / {employee.department}</p>
         <span>{employee.id}</span>
@@ -794,9 +953,10 @@ function ProfileView({ employee, role }: { employee: Employee; role: Role }) {
       </div>
       <div className="panel">
         <h2>Documents & Skills</h2>
-        <p><FileText size={16} /> Resume, bank proof, identity documents</p>
+        <p><FileText size={16} /> Resume, bank proof, identity documents, offer letter, and certificates</p>
         <div className="tags">{employee.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
       </div>
+      <DocumentPanel documents={ownDocuments} role={role} onDecision={onDocumentDecision} comment={comment} onComment={setComment} />
     </section>
   );
 }

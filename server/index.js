@@ -1,17 +1,23 @@
 import "node:sqlite";
 import "./env.js";
+import { writeFileSync } from "node:fs";
+import { dirname, extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
-import { db, createEmployeeId, initialsFor, refreshSalary, rowToEmployee } from "./db.js";
+import { db, createEmployeeId, initialsFor, refreshSalary, rowToEmployee, uploadsDir } from "./db.js";
 import { hashPassword, randomOtp, randomToken, verifyPassword } from "./crypto.js";
 import { sendEmployeeInviteEmail, sendOtpEmail } from "./mail.js";
 
 const app = express();
 const sessions = new Map();
 const pendingLogins = new Map();
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const documentTypes = new Set(["Profile Photo", "Resume", "ID Proof", "Bank Proof", "Offer Letter", "Education Certificate", "Experience Letter", "Other"]);
 
 app.use(cors({ origin: "http://127.0.0.1:5173" }));
-app.use(express.json());
+app.use(express.json({ limit: "8mb" }));
+app.use("/uploads", express.static(join(__dirname, "..", "data", "uploads")));
 
 function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
@@ -45,6 +51,30 @@ function temporaryPassword() {
 
 function validatePassword(password) {
   return /^(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
+}
+
+function saveUploadedFile(file) {
+  if (!file?.dataUrl || !file?.fileName || !file?.mimeType) throw new Error("Each upload needs a file name, type, and content.");
+  const match = /^data:([^;]+);base64,(.+)$/.exec(file.dataUrl);
+  if (!match) throw new Error("Upload content is invalid.");
+  const buffer = Buffer.from(match[2], "base64");
+  if (buffer.length > 5 * 1024 * 1024) throw new Error("Each file must be 5 MB or smaller.");
+  const safeExt = extname(file.fileName).toLowerCase().replace(/[^.\w]/g, "") || ".bin";
+  const storedName = `${randomToken()}${safeExt}`;
+  writeFileSync(join(uploadsDir, storedName), buffer);
+  return `/uploads/${storedName}`;
+}
+
+function insertDocument(employeeId, doc) {
+  if (!documentTypes.has(doc.type)) throw new Error(`Unsupported document type: ${doc.type}`);
+  const fileUrl = saveUploadedFile(doc);
+  db.prepare(`
+    INSERT INTO employee_documents (employee_id, type, file_name, mime_type, file_url, status)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(employeeId, doc.type, doc.fileName, doc.mimeType, fileUrl, "Pending");
+  if (doc.type === "Profile Photo") {
+    db.prepare("UPDATE employees SET profile_photo_url = ? WHERE id = ?").run(fileUrl, employeeId);
+  }
 }
 
 function employeeByUser(user) {
@@ -264,6 +294,11 @@ app.get("/api/me", requireAuth, (req, res) => {
   res.json({ user: req.user, employee: employeeByUser(req.user) });
 });
 
+app.get("/api/job-profiles", requireAuth, (req, res) => {
+  const rows = db.prepare("SELECT * FROM job_profiles ORDER BY title").all();
+  res.json(rows.map((row) => ({ ...row, skills: JSON.parse(row.skills_json || "[]") })));
+});
+
 app.get("/api/employees", requireAuth, (req, res) => {
   if (req.user.role === "employee") {
     const employee = employeeByUser(req.user);
@@ -273,9 +308,38 @@ app.get("/api/employees", requireAuth, (req, res) => {
   res.json(rows.map(rowToEmployee));
 });
 
+app.get("/api/documents", requireAuth, (req, res) => {
+  const employeeId = req.user.role === "employee" ? req.user.employeeId : req.query.employeeId;
+  const sql = employeeId
+    ? `SELECT employee_documents.*, employees.name FROM employee_documents JOIN employees ON employees.id = employee_documents.employee_id WHERE employee_id = ? ORDER BY uploaded_at DESC`
+    : `SELECT employee_documents.*, employees.name FROM employee_documents JOIN employees ON employees.id = employee_documents.employee_id ORDER BY uploaded_at DESC`;
+  const rows = employeeId ? db.prepare(sql).all(employeeId) : db.prepare(sql).all();
+  res.json(rows);
+});
+
+app.post("/api/documents", requireAuth, (req, res) => {
+  try {
+    const employeeId = req.user.role === "employee" ? req.user.employeeId : req.body.employeeId;
+    if (!employeeId) return res.status(400).json({ error: "Employee is required." });
+    if (req.user.role === "employee" && employeeId !== req.user.employeeId) return res.status(403).json({ error: "Employees can upload only their own documents." });
+    if (!db.prepare("SELECT id FROM employees WHERE id = ?").get(employeeId)) return res.status(404).json({ error: "Employee not found." });
+    insertDocument(employeeId, req.body);
+    res.status(201).json({ ok: true });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch("/api/documents/:id", requireAuth, requireAdmin, (req, res) => {
+  const { status, adminComment } = req.body;
+  if (!["Approved", "Rejected"].includes(status)) return res.status(400).json({ error: "Invalid document decision." });
+  db.prepare("UPDATE employee_documents SET status = ?, admin_comment = ? WHERE id = ?").run(status, adminComment || "", req.params.id);
+  res.json({ ok: true });
+});
+
 app.post("/api/employees", requireAuth, requireAdmin, async (req, res) => {
-  const { name, email, phone, address, title, department, location, manager, joined, wage, skills } = req.body;
-  if (!name || !email || !phone || !title || !department || !location || !manager || !joined || !wage) {
+  const { name, email, phone, address, jobProfileId, manager, joined, salary, documents = [] } = req.body;
+  if (!name || !email || !phone || !address || !jobProfileId || !manager || !joined || !salary) {
     return res.status(400).json({ error: "All employee profile fields are required." });
   }
   if (db.prepare("SELECT id FROM employees WHERE email = ?").get(email) || db.prepare("SELECT id FROM users WHERE email = ?").get(email)) {
@@ -284,6 +348,9 @@ app.post("/api/employees", requireAuth, requireAdmin, async (req, res) => {
 
   const id = createEmployeeId(name);
   const tempPassword = temporaryPassword();
+  const profile = db.prepare("SELECT * FROM job_profiles WHERE id = ?").get(jobProfileId);
+  if (!profile) return res.status(400).json({ error: "Select a valid job profile." });
+  const skills = JSON.parse(profile.skills_json || "[]");
   try {
     db.exec("BEGIN");
     db.prepare(`
@@ -296,20 +363,21 @@ app.post("/api/employees", requireAuth, requireAdmin, async (req, res) => {
       email,
       phone,
       address || "",
-      title,
-      department,
-      location,
+      profile.title,
+      profile.department,
+      address,
       manager,
       joined,
-      Number(wage),
-      JSON.stringify(Array.isArray(skills) ? skills : []),
+      Number(salary),
+      JSON.stringify(skills),
       initialsFor(name)
     );
-    refreshSalary(id, Number(wage));
+    refreshSalary(id, Number(salary));
     db.prepare(`
       INSERT INTO users (role, employee_id, email, password_hash, verified, must_change_password)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run("employee", id, email, hashPassword(tempPassword), 0, 1);
+    for (const doc of documents) insertDocument(id, doc);
     await sendEmployeeInviteEmail({
       to: email,
       name,
