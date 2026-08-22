@@ -189,6 +189,22 @@ function App() {
   const [credentials, setCredentials] = useState<EmployeeCredentials | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [notice, setNotice] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
+
+  function clearWorkspace() {
+    setToken("");
+    setUser(null);
+    setEmployees([]);
+    setAttendance([]);
+    setLeaves([]);
+    setLeaveBalances([]);
+    setPayroll([]);
+    setJobProfiles([]);
+    setDocuments([]);
+    setActivity([]);
+    setCredentials(null);
+    setSelectedEmployeeId("");
+  }
 
   async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await fetch(path, {
@@ -200,6 +216,12 @@ function App() {
       },
     });
     const data = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      clearWorkspace();
+      setNotice("");
+      setAuthNotice("Your session expired after the server restarted. Please sign in again.");
+      throw new Error("Session expired. Please sign in again.");
+    }
     if (!response.ok) throw new Error(data.error || "Request failed");
     return data;
   }
@@ -228,6 +250,7 @@ function App() {
   }
 
   async function startSession(nextToken: string, nextUser: User) {
+    setAuthNotice("");
     setToken(nextToken);
     setUser(nextUser);
     setActive(nextUser.role === "admin" ? "employees" : "profile");
@@ -235,18 +258,9 @@ function App() {
   }
 
   function logout() {
-    setToken("");
-    setUser(null);
-    setEmployees([]);
-    setAttendance([]);
-    setLeaves([]);
-    setLeaveBalances([]);
-    setPayroll([]);
-    setJobProfiles([]);
-    setDocuments([]);
-    setActivity([]);
-    setSelectedEmployeeId("");
+    clearWorkspace();
     setNotice("");
+    setAuthNotice("");
   }
 
   async function createEmployee(input: EmployeeForm) {
@@ -349,7 +363,7 @@ function App() {
     return { present, pending, totalPayroll };
   }, [attendance, employees, leaves]);
 
-  if (!user) return <AuthScreen onSession={startSession} />;
+  if (!user) return <AuthScreen onSession={startSession} notice={authNotice} />;
   if (user.mustChangePassword) return <PasswordChangeScreen email={user.email} onChange={completePasswordChange} onLogout={logout} />;
 
   return (
@@ -463,7 +477,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function AuthScreen({ onSession }: { onSession: (token: string, user: User) => void }) {
+function AuthScreen({ onSession, notice }: { onSession: (token: string, user: User) => void; notice?: string }) {
   const [mode, setMode] = useState<"admin" | "employee" | "signup" | "forgot">("admin");
   const [signupRole, setSignupRole] = useState<Role>("employee");
   const [identifier, setIdentifier] = useState("");
@@ -630,6 +644,8 @@ function AuthScreen({ onSession }: { onSession: (token: string, user: User) => v
             Sign Up
           </button>
         </div>
+
+        {notice && <div className="notice">{notice}</div>}
 
         {mode === "signup" && (
           <div className="role-select">
@@ -1103,6 +1119,7 @@ function AttendanceView({
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [status, setStatus] = useState("All");
   const [busyAction, setBusyAction] = useState<"in" | "out" | "manual" | "">("");
+  const [editingRecord, setEditingRecord] = useState<Attendance | null>(null);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<ManualAttendanceForm>({
     employeeId: employees[0]?.id || "",
@@ -1162,11 +1179,36 @@ function AttendanceView({
     setBusyAction("manual");
     try {
       await onManual(draft);
+      setEditingRecord(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save attendance.");
     } finally {
       setBusyAction("");
     }
+  }
+
+  function editAttendance(row: Attendance) {
+    setEditingRecord(row);
+    setDraft({
+      employeeId: row.employee_id,
+      workDate: row.work_date,
+      checkIn: row.check_in || "09:00",
+      checkOut: row.check_out || "18:00",
+      status: row.status,
+      note: row.note || "Corrected by HR",
+    });
+  }
+
+  function resetManualForm() {
+    setEditingRecord(null);
+    setDraft({
+      employeeId: employeeId || employees[0]?.id || "",
+      workDate: new Date().toISOString().slice(0, 10),
+      checkIn: "09:00",
+      checkOut: "18:00",
+      status: "Present",
+      note: "",
+    });
   }
 
   return (
@@ -1202,19 +1244,24 @@ function AttendanceView({
           <Metric label="Leave / Absent" value={String(summary.Leave + summary.Absent)} />
           <Metric label="Hours / Extra" value={`${summary.totalHours.toFixed(1)} / ${summary.extraHours.toFixed(1)}`} />
         </section>
-        <DataTable
-          headers={attendanceHeaders.slice(0, 7)}
-          empty="No attendance records match the selected filters."
-          rows={attendanceRows.map((row) => row.slice(0, 7))}
-        />
+        {role === "admin" ? (
+          <AttendanceTable rows={filteredRows} onEdit={editAttendance} />
+        ) : (
+          <DataTable
+            headers={attendanceHeaders.slice(0, 7)}
+            empty="No attendance records match the selected filters."
+            rows={attendanceRows.map((row) => row.slice(0, 7))}
+          />
+        )}
       </div>
       {role === "admin" && (
         <div className="panel">
           <div className="panel-head">
             <div>
               <p>HR adjustment</p>
-              <h2>Manual Marking</h2>
+              <h2>{editingRecord ? "Edit Attendance" : "Manual Marking"}</h2>
             </div>
+            {editingRecord && <button className="ghost small" onClick={resetManualForm}>New Entry</button>}
           </div>
           <div className="form-grid compact">
             <label><span>employee</span><select value={draft.employeeId} onChange={(event) => setDraft({ ...draft, employeeId: event.target.value })}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
@@ -1223,11 +1270,49 @@ function AttendanceView({
             <label><span>check out</span><input type="time" value={draft.checkOut} onChange={(event) => setDraft({ ...draft, checkOut: event.target.value })} /></label>
             <label><span>status</span><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as ManualAttendanceForm["status"] })}><option>Present</option><option>Half-day</option><option>Absent</option><option>Leave</option></select></label>
             <label><span>note</span><input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} /></label>
-            <button className="primary" disabled={Boolean(busyAction)} onClick={saveManual}>{busyAction === "manual" ? "Saving..." : "Save Attendance"}</button>
+            {editingRecord && <div className="selection-summary"><strong>Editing {editingRecord.name} on {editingRecord.work_date}</strong></div>}
+            <button className="primary" disabled={Boolean(busyAction)} onClick={saveManual}>{busyAction === "manual" ? "Saving..." : editingRecord ? "Save Correction" : "Save Attendance"}</button>
           </div>
         </div>
       )}
     </section>
+  );
+}
+
+function AttendanceTable({ rows, onEdit }: { rows: Attendance[]; onEdit: (row: Attendance) => void }) {
+  if (rows.length === 0) return <div className="empty">No attendance records match the selected filters.</div>;
+
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Date</th>
+            <th>Check In</th>
+            <th>Check Out</th>
+            <th>Status</th>
+            <th>Hours</th>
+            <th>Extra</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td>{row.name}</td>
+              <td>{row.work_date}</td>
+              <td>{row.check_in || "-"}</td>
+              <td>{row.check_out || "-"}</td>
+              <td>{row.status}</td>
+              <td>{Number(row.work_hours || 0).toFixed(1)}</td>
+              <td>{Number(row.extra_hours || 0).toFixed(1)}</td>
+              <td><button className="ghost tiny" onClick={() => onEdit(row)}>Edit</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

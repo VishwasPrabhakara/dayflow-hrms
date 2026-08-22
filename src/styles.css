@@ -250,6 +250,12 @@ button:disabled {
   min-height: 38px;
 }
 
+.tiny {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
 .ghost {
   display: inline-flex;
   align-items: center;
