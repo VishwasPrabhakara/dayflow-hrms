@@ -1219,10 +1219,12 @@ function LeavesView({
   const [busySubmit, setBusySubmit] = useState(false);
   const [busyDecisionId, setBusyDecisionId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(new Date().toISOString().slice(0, 7));
   const days = Math.max(0, Math.floor((new Date(draft.endDate).getTime() - new Date(draft.startDate).getTime()) / 86400000) + 1);
   const activeEmployeeId = role === "admin" ? draft.employeeId : rows[0]?.employee_id || employees[0]?.id || "";
   const activeBalances = balances.filter((balance) => balance.employeeId === activeEmployeeId);
   const pendingRows = rows.filter((row) => row.status === "Pending");
+  const calendarRows = role === "admin" && activeEmployeeId ? rows.filter((row) => row.employee_id === activeEmployeeId) : rows;
 
   useEffect(() => {
     if (!draft.employeeId && employees[0]) setDraft((current) => ({ ...current, employeeId: employees[0].id }));
@@ -1287,6 +1289,7 @@ function LeavesView({
           {draft.type === "Sick" && <FileInput type="Sick Certificate" accept=".pdf,image/*" onPick={(file) => setAttachment({ ...file, type: "Sick Certificate" })} />}
           <button className="primary" disabled={busySubmit} onClick={submitLeave}>{busySubmit ? "Submitting..." : "Submit Leave Request"}</button>
         </div>
+        <LeaveCalendar month={calendarMonth} rows={calendarRows} onMonth={setCalendarMonth} />
       </div>
       <div className="panel">
         <div className="panel-head">
@@ -1317,6 +1320,77 @@ function LeavesView({
       </div>
     </section>
   );
+}
+
+function LeaveCalendar({ month, rows, onMonth }: { month: string; rows: LeaveRequest[]; onMonth: (month: string) => void }) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const firstDay = new Date(year, monthNumber - 1, 1);
+  const totalDays = new Date(year, monthNumber, 0).getDate();
+  const leadingDays = firstDay.getDay();
+  const cells = [
+    ...Array.from({ length: leadingDays }, (_, index) => ({ key: `empty-${index}`, day: "", date: "" })),
+    ...Array.from({ length: totalDays }, (_, index) => {
+      const day = index + 1;
+      return { key: `${month}-${day}`, day: String(day), date: `${month}-${String(day).padStart(2, "0")}` };
+    }),
+  ];
+  const leaveByDate = new Map<string, LeaveRequest[]>();
+  rows.forEach((row) => {
+    for (const date of datesInRange(row.start_date, row.end_date)) {
+      if (!date.startsWith(month)) continue;
+      leaveByDate.set(date, [...(leaveByDate.get(date) || []), row]);
+    }
+  });
+
+  return (
+    <div className="leave-calendar">
+      <div className="panel-head compact-head">
+        <div>
+          <p>Calendar view</p>
+          <h2>Leave Planner</h2>
+        </div>
+        <input type="month" value={month} onChange={(event) => onMonth(event.target.value)} />
+      </div>
+      <div className="calendar-legend">
+        <span><i className="approved" /> Approved</span>
+        <span><i className="pending" /> Pending</span>
+        <span><i className="rejected" /> Rejected</span>
+      </div>
+      <div className="calendar-grid">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <strong key={day}>{day}</strong>)}
+        {cells.map((cell) => {
+          const leaveRows = cell.date ? leaveByDate.get(cell.date) || [] : [];
+          const status = leaveRows.some((row) => row.status === "Approved")
+            ? "approved"
+            : leaveRows.some((row) => row.status === "Pending")
+              ? "pending"
+              : leaveRows.some((row) => row.status === "Rejected")
+                ? "rejected"
+                : "";
+          return (
+            <div className={status ? `calendar-day ${status}` : "calendar-day"} key={cell.key}>
+              <span>{cell.day}</span>
+              {leaveRows.slice(0, 2).map((row) => <em key={`${row.id}-${cell.date}`}>{row.type}</em>)}
+              {leaveRows.length > 2 && <em>+{leaveRows.length - 2}</em>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function datesInRange(startDate: string, endDate: string) {
+  const dates: string[] = [];
+  const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
+  const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
+  const cursor = new Date(Date.UTC(startYear, startMonth - 1, startDay));
+  const end = new Date(Date.UTC(endYear, endMonth - 1, endDay));
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
 }
 
 function ProfileView({

@@ -662,6 +662,106 @@ th {
   color: #66756f;
 }
 
+.leave-calendar {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(23, 32, 29, 0.1);
+}
+
+.compact-head {
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.compact-head input {
+  min-height: 40px;
+  border: 1px solid rgba(23, 32, 29, 0.14);
+  border-radius: 8px;
+  padding: 0 10px;
+}
+
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: #66756f;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.calendar-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.calendar-grid > strong {
+  color: #66756f;
+  font-size: 0.72rem;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.calendar-day {
+  min-height: 58px;
+  padding: 7px;
+  border-radius: 8px;
+  background: #f6faf8;
+  color: #52635d;
+}
+
+.calendar-day span,
+.calendar-day em {
+  display: block;
+}
+
+.calendar-day span {
+  font-weight: 900;
+}
+
+.calendar-day em {
+  margin-top: 3px;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-day.approved,
+.calendar-legend .approved {
+  background: #dff1e8;
+  color: #13665b;
+}
+
+.calendar-day.pending,
+.calendar-legend .pending {
+  background: #fff2cf;
+  color: #7a570f;
+}
+
+.calendar-day.rejected,
+.calendar-legend .rejected {
+  background: #ffe2df;
+  color: #a93428;
+}
+
 .document-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
