@@ -655,28 +655,6 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
       });
       const data = await response.json();
       if (!response.ok) return setError(data.error || "Unable to sign in.");
-      if (data.requiresOtp) {
-        setChallengeId(data.challengeId);
-        return;
-      }
-      onSession(data.token, data.user);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function verifyEmployeeOtp() {
-    if (busy) return;
-    setError("");
-    setBusy(true);
-    try {
-      const response = await fetch("/api/auth/verify-login-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ challengeId, otp }),
-      });
-      const data = await response.json();
-      if (!response.ok) return setError(data.error || "OTP verification failed.");
       onSession(data.token, data.user);
     } finally {
       setBusy(false);
@@ -810,8 +788,7 @@ function AuthScreen({ onSession, notice }: { onSession: (token: string, user: Us
         {error && <div className="error">{error}</div>}
 
         {mode === "admin" && <button className="primary" disabled={busy} onClick={login}>{busy ? "Signing in..." : "Sign In"}</button>}
-        {mode === "employee" && !needsOtp && <button className="primary" disabled={busy || needsOtp} onClick={login}>{busy ? "Sending OTP..." : "Send OTP"}</button>}
-        {mode === "employee" && needsOtp && <button className="primary" disabled={busy} onClick={verifyEmployeeOtp}>{busy ? "Verifying..." : "Verify OTP"}</button>}
+        {mode === "employee" && <button className="primary" disabled={busy} onClick={login}>{busy ? "Signing in..." : "Sign In"}</button>}
         {mode === "signup" && !needsOtp && <button className="primary" disabled={busy || needsOtp} onClick={requestSignupOtp}>{busy ? "Sending OTP..." : "Send Email OTP"}</button>}
         {mode === "signup" && needsOtp && <button className="primary" disabled={busy} onClick={verifySignupOtp}>{busy ? "Creating..." : "Verify & Create Account"}</button>}
         {mode === "forgot" && !needsOtp && <button className="primary" disabled={busy || needsOtp} onClick={requestPasswordResetOtp}>{busy ? "Sending OTP..." : "Send Reset OTP"}</button>}

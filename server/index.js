@@ -12,7 +12,6 @@ import { createPayslipPdfBuffer } from "./pdf.js";
 
 const app = express();
 const sessions = new Map();
-const pendingLogins = new Map();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const documentTypes = new Set(["Profile Photo", "Resume", "ID Proof", "Bank Proof", "Offer Letter", "Education Certificate", "Experience Letter", "Other"]);
 const leaveEntitlements = { Paid: 24, Sick: 7, Unpaid: 0 };
@@ -326,31 +325,9 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Incorrect credentials." });
     }
 
-    if (user.role === "admin") return res.json(sessionFor(user));
-
-    const challenge = await createOtpChallenge({
-      email: user.email,
-      purpose: "employee-login",
-      payload: { userId: user.id },
-      name: employeeByUser({ employeeId: user.employee_id })?.name,
-    });
-    pendingLogins.set(challenge.challengeId, user.id);
-    res.json({ requiresOtp: true, ...challenge });
-  } catch (error) {
-    res.status(503).json({ error: error.message });
-  }
-});
-
-app.post("/api/auth/verify-login-otp", (req, res) => {
-  try {
-    const { challengeId, otp } = req.body;
-    const payload = verifyChallenge(challengeId, otp, "employee-login");
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(payload.userId);
-    if (!user) return res.status(404).json({ error: "User not found." });
-    pendingLogins.delete(challengeId);
     res.json(sessionFor(user));
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(503).json({ error: error.message });
   }
 });
 
