@@ -4,7 +4,7 @@ import cors from "cors";
 import express from "express";
 import { db, createEmployeeId, initialsFor, refreshSalary, rowToEmployee } from "./db.js";
 import { hashPassword, randomOtp, randomToken, verifyPassword } from "./crypto.js";
-import { sendOtpEmail } from "./mail.js";
+import { sendEmployeeInviteEmail, sendOtpEmail } from "./mail.js";
 
 const app = express();
 const sessions = new Map();
@@ -37,6 +37,14 @@ function sessionFor(user) {
   };
   sessions.set(token, session);
   return { token, user: session };
+}
+
+function temporaryPassword() {
+  return `${randomToken().slice(0, 5)}${randomOtp()}A`;
+}
+
+function validatePassword(password) {
+  return /^(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
 }
 
 function employeeByUser(user) {
@@ -121,7 +129,7 @@ app.post("/api/auth/signup/request-otp", async (req, res) => {
     const { role = "admin", employeeId, name, email, password } = req.body;
     if (!["admin", "employee"].includes(role)) return res.status(400).json({ error: "Choose a valid role." });
     if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
-    if (!/^(?=.*[A-Z])(?=.*\d).{8,}$/.test(password)) {
+    if (!validatePassword(password)) {
       return res.status(400).json({ error: "Password needs 8 characters, one capital letter, and one number." });
     }
 
@@ -192,6 +200,66 @@ app.post("/api/auth/signup/verify", (req, res) => {
   }
 });
 
+app.post("/api/auth/password/request-reset", async (req, res) => {
+  try {
+    const { identifier } = req.body;
+    if (!identifier) return res.status(400).json({ error: "Email or Employee ID is required." });
+    const user = db
+      .prepare(
+        `SELECT users.*, employees.name FROM users
+         LEFT JOIN employees ON employees.id = users.employee_id
+         WHERE users.email = ? OR employees.id = ?`
+      )
+      .get(identifier, identifier.trim().toUpperCase());
+    if (!user) return res.status(404).json({ error: "No account found for these details." });
+    res.json(
+      await createOtpChallenge({
+        email: user.email,
+        purpose: "password-reset",
+        payload: { userId: user.id },
+        name: user.name,
+      })
+    );
+  } catch (error) {
+    res.status(503).json({ error: error.message });
+  }
+});
+
+app.post("/api/auth/password/verify-reset", (req, res) => {
+  try {
+    const { challengeId, otp, password } = req.body;
+    if (!validatePassword(password)) {
+      return res.status(400).json({ error: "Password needs 8 characters, one capital letter, and one number." });
+    }
+    const payload = verifyChallenge(challengeId, otp, "password-reset");
+    db.prepare("UPDATE users SET password_hash = ?, verified = 1, must_change_password = 0 WHERE id = ?").run(
+      hashPassword(password),
+      payload.userId
+    );
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(payload.userId);
+    res.json(sessionFor(user));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post("/api/auth/password/change", requireAuth, (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!validatePassword(password)) {
+      return res.status(400).json({ error: "Password needs 8 characters, one capital letter, and one number." });
+    }
+    db.prepare("UPDATE users SET password_hash = ?, verified = 1, must_change_password = 0 WHERE id = ?").run(
+      hashPassword(password),
+      req.user.id
+    );
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+    res.json(sessionFor(user));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.get("/api/me", requireAuth, (req, res) => {
   res.json({ user: req.user, employee: employeeByUser(req.user) });
 });
@@ -205,39 +273,56 @@ app.get("/api/employees", requireAuth, (req, res) => {
   res.json(rows.map(rowToEmployee));
 });
 
-app.post("/api/employees", requireAuth, requireAdmin, (req, res) => {
+app.post("/api/employees", requireAuth, requireAdmin, async (req, res) => {
   const { name, email, phone, address, title, department, location, manager, joined, wage, skills } = req.body;
   if (!name || !email || !phone || !title || !department || !location || !manager || !joined || !wage) {
     return res.status(400).json({ error: "All employee profile fields are required." });
   }
+  if (db.prepare("SELECT id FROM employees WHERE email = ?").get(email) || db.prepare("SELECT id FROM users WHERE email = ?").get(email)) {
+    return res.status(409).json({ error: "An employee or user already exists with this email." });
+  }
 
   const id = createEmployeeId(name);
-  const temporaryPassword = "Welcome@2026";
-  db.prepare(`
-    INSERT INTO employees
-    (id, name, email, phone, address, title, department, location, manager, joined, wage, skills_json, avatar)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    name,
-    email,
-    phone,
-    address || "",
-    title,
-    department,
-    location,
-    manager,
-    joined,
-    Number(wage),
-    JSON.stringify(Array.isArray(skills) ? skills : []),
-    initialsFor(name)
-  );
-  refreshSalary(id, Number(wage));
-  db.prepare(`
-    INSERT INTO users (role, employee_id, email, password_hash, verified, must_change_password)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run("employee", id, email, hashPassword(temporaryPassword), 0, 1);
-  res.status(201).json({ employee: rowToEmployee(db.prepare("SELECT * FROM employees WHERE id = ?").get(id)), credentials: { id, temporaryPassword } });
+  const tempPassword = temporaryPassword();
+  try {
+    db.exec("BEGIN");
+    db.prepare(`
+      INSERT INTO employees
+      (id, name, email, phone, address, title, department, location, manager, joined, wage, skills_json, avatar)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      name,
+      email,
+      phone,
+      address || "",
+      title,
+      department,
+      location,
+      manager,
+      joined,
+      Number(wage),
+      JSON.stringify(Array.isArray(skills) ? skills : []),
+      initialsFor(name)
+    );
+    refreshSalary(id, Number(wage));
+    db.prepare(`
+      INSERT INTO users (role, employee_id, email, password_hash, verified, must_change_password)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run("employee", id, email, hashPassword(tempPassword), 0, 1);
+    await sendEmployeeInviteEmail({
+      to: email,
+      name,
+      employeeId: id,
+      temporaryPassword: tempPassword,
+      loginUrl: process.env.CLIENT_URL || "http://127.0.0.1:5173",
+    });
+    db.exec("COMMIT");
+    res.status(201).json({ employee: rowToEmployee(db.prepare("SELECT * FROM employees WHERE id = ?").get(id)), credentials: { id, emailed: true } });
+  } catch (error) {
+    db.exec("ROLLBACK");
+    res.status(503).json({ error: error.message });
+  }
 });
 
 app.get("/api/attendance", requireAuth, (req, res) => {

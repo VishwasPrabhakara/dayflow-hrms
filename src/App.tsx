@@ -77,6 +77,8 @@ type SalaryComponent = {
   amount: number;
 };
 
+type EmployeeCredentials = { id: string; emailed: boolean };
+
 const navItems = [
   ["employees", "Employees", UsersRound],
   ["attendance", "Attendance", CalendarCheck],
@@ -102,7 +104,7 @@ function App() {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [payroll, setPayroll] = useState<SalaryComponent[]>([]);
-  const [credentials, setCredentials] = useState<{ id: string; temporaryPassword: string } | null>(null);
+  const [credentials, setCredentials] = useState<EmployeeCredentials | null>(null);
   const [notice, setNotice] = useState("");
 
   async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -151,13 +153,22 @@ function App() {
   }
 
   async function createEmployee(input: EmployeeForm) {
-    const result = await api<{ employee: Employee; credentials: { id: string; temporaryPassword: string } }>("/api/employees", {
+    const result = await api<{ employee: Employee; credentials: EmployeeCredentials }>("/api/employees", {
       method: "POST",
       body: JSON.stringify(input),
     });
     setCredentials(result.credentials);
-    setNotice("Employee account created. Share generated credentials with the employee.");
+    setNotice("Employee account created and login instructions were emailed.");
     await loadWorkspace();
+  }
+
+  async function completePasswordChange(password: string) {
+    const result = await api<{ token: string; user: User }>("/api/auth/password/change", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    });
+    await startSession(result.token, result.user);
+    setNotice("Password updated. Your account is ready.");
   }
 
   async function markAttendance(employeeId?: string) {
@@ -196,6 +207,7 @@ function App() {
   }, [attendance, employees, leaves]);
 
   if (!user) return <AuthScreen onSession={startSession} />;
+  if (user.mustChangePassword) return <PasswordChangeScreen email={user.email} onChange={completePasswordChange} onLogout={logout} />;
 
   return (
     <main className="app">
@@ -285,7 +297,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function AuthScreen({ onSession }: { onSession: (token: string, user: User) => void }) {
-  const [mode, setMode] = useState<"admin" | "employee" | "signup">("admin");
+  const [mode, setMode] = useState<"admin" | "employee" | "signup" | "forgot">("admin");
   const [signupRole, setSignupRole] = useState<Role>("employee");
   const [identifier, setIdentifier] = useState("");
   const [employeeId, setEmployeeId] = useState("");
@@ -385,6 +397,46 @@ function AuthScreen({ onSession }: { onSession: (token: string, user: User) => v
     }
   }
 
+  async function requestPasswordResetOtp() {
+    if (busy || challengeId) return;
+    setError("");
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/password/request-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier }),
+      });
+      const data = await response.json();
+      if (!response.ok) return setError(data.error || "Unable to send reset OTP.");
+      setChallengeId(data.challengeId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verifyPasswordResetOtp() {
+    if (busy) return;
+    setError("");
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/password/verify-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challengeId, otp, password }),
+      });
+      const data = await response.json();
+      if (!response.ok) return setError(data.error || "Password reset failed.");
+      onSession(data.token, data.user);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const needsOtp = Boolean(challengeId);
   return (
     <main className="auth">
@@ -426,9 +478,9 @@ function AuthScreen({ onSession }: { onSession: (token: string, user: User) => v
         {mode === "signup" && signupRole === "employee" && (
           <Field label="Employee ID" icon={Fingerprint} value={employeeId} onChange={(value) => setEmployeeId(value.toUpperCase())} />
         )}
-        <Field label={mode === "employee" ? "Employee ID or Email" : "Email"} icon={Mail} value={identifier} onChange={setIdentifier} />
-        <Field label="Password" icon={ShieldCheck} value={password} onChange={setPassword} type="password" />
-        {mode === "signup" && <Field label="Confirm Password" icon={ShieldCheck} value={confirmPassword} onChange={setConfirmPassword} type="password" />}
+        <Field label={mode === "employee" || mode === "forgot" ? "Employee ID or Email" : "Email"} icon={Mail} value={identifier} onChange={setIdentifier} />
+        {mode !== "forgot" || needsOtp ? <Field label={mode === "forgot" ? "New Password" : "Password"} icon={ShieldCheck} value={password} onChange={setPassword} type="password" /> : null}
+        {(mode === "signup" || (mode === "forgot" && needsOtp)) && <Field label="Confirm Password" icon={ShieldCheck} value={confirmPassword} onChange={setConfirmPassword} type="password" />}
         {needsOtp && <Field label="Email OTP" icon={Fingerprint} value={otp} onChange={setOtp} />}
 
         {error && <div className="error">{error}</div>}
@@ -438,6 +490,69 @@ function AuthScreen({ onSession }: { onSession: (token: string, user: User) => v
         {mode === "employee" && needsOtp && <button className="primary" disabled={busy} onClick={verifyEmployeeOtp}>{busy ? "Verifying..." : "Verify OTP"}</button>}
         {mode === "signup" && !needsOtp && <button className="primary" disabled={busy || needsOtp} onClick={requestSignupOtp}>{busy ? "Sending OTP..." : "Send Email OTP"}</button>}
         {mode === "signup" && needsOtp && <button className="primary" disabled={busy} onClick={verifySignupOtp}>{busy ? "Creating..." : "Verify & Create Account"}</button>}
+        {mode === "forgot" && !needsOtp && <button className="primary" disabled={busy || needsOtp} onClick={requestPasswordResetOtp}>{busy ? "Sending OTP..." : "Send Reset OTP"}</button>}
+        {mode === "forgot" && needsOtp && <button className="primary" disabled={busy} onClick={verifyPasswordResetOtp}>{busy ? "Updating..." : "Verify & Reset Password"}</button>}
+
+        {mode !== "signup" && mode !== "forgot" && (
+          <button className="text-button" onClick={() => resetAuthFlow("forgot")}>
+            Forgot password?
+          </button>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function PasswordChangeScreen({
+  email,
+  onChange,
+  onLogout,
+}: {
+  email: string;
+  onChange: (password: string) => void;
+  onLogout: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (busy) return;
+    setError("");
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await onChange(password);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update password.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth">
+      <section className="auth-copy">
+        <div className="brand">
+          <div className="mark">D</div>
+          <div>
+            <strong>Dayflow</strong>
+            <span>Secure first login</span>
+          </div>
+        </div>
+        <h1>Set your new password</h1>
+        <p>Your temporary password worked. Create your own password before entering the HRMS workspace.</p>
+      </section>
+      <section className="auth-panel">
+        <div className="notice">Signed in as {email}</div>
+        <Field label="New Password" icon={ShieldCheck} value={password} onChange={setPassword} type="password" />
+        <Field label="Confirm Password" icon={ShieldCheck} value={confirmPassword} onChange={setConfirmPassword} type="password" />
+        {error && <div className="error">{error}</div>}
+        <button className="primary" disabled={busy} onClick={submit}>{busy ? "Saving..." : "Save Password"}</button>
+        <button className="text-button" onClick={onLogout}>Log out</button>
       </section>
     </main>
   );
@@ -484,7 +599,7 @@ function EmployeesView({
   onCreate,
 }: {
   employees: Employee[];
-  credentials: { id: string; temporaryPassword: string } | null;
+  credentials: EmployeeCredentials | null;
   onCreate: (input: EmployeeForm) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -523,7 +638,7 @@ function EmployeesView({
         </div>
         {credentials && (
           <div className="credential">
-            Generated login: <strong>{credentials.id}</strong> / temporary password: <strong>{credentials.temporaryPassword}</strong>
+            Employee ID <strong>{credentials.id}</strong> created. Temporary password and login link were sent by email.
           </div>
         )}
         {open && (
