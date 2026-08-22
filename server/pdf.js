@@ -141,9 +141,244 @@ function drawFooter(page) {
   page.right("This is a system generated document.", PAGE.width - PAGE.margin, 34, 8.5, COLORS.muted);
 }
 
-export function createDemoPdfBuffer({ title, employeeId, employeeName, type, status }) {
-  const page = new PdfPage();
-  const issued = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+function digitsFor(value, length) {
+  let hash = 0;
+  for (const char of String(value || "")) hash = (hash * 31 + char.charCodeAt(0)) % 1000000007;
+  return String(hash).padStart(length, "0").slice(0, length);
+}
+
+function drawResume(page, { employeeId, employeeName, status, issued }) {
+  drawHeader(page, "Resume", "Candidate profile and experience summary");
+  page.text(employeeName, PAGE.margin, 724, 24, COLORS.ink, "F2");
+  page.text("HRMS Candidate Profile", PAGE.margin, 704, 10, COLORS.muted);
+  page.pill(status.toUpperCase(), 444, 720, 104, status === "Rejected" ? COLORS.dangerSoft : COLORS.brandSoft);
+
+  page.color(COLORS.brandSoft);
+  page.rect(PAGE.margin, 640, 506, 42);
+  page.text(`Employee ID: ${employeeId}`, 58, 664, 10, COLORS.brand, "F2");
+  page.text("Location: Bangalore", 218, 664, 10, COLORS.brand, "F2");
+  page.text(`Generated: ${issued}`, 378, 664, 10, COLORS.brand, "F2");
+
+  page.section("Professional Summary", PAGE.margin, 604, 506);
+  page.text("People-focused professional profile maintained in Dayflow HRMS for onboarding,", 58, 576, 10, COLORS.ink);
+  page.text("document review, attendance, leave, and payroll workflows.", 58, 558, 10, COLORS.ink);
+
+  page.section("Core Skills", PAGE.margin, 510, 224);
+  page.table({
+    x: PAGE.margin,
+    y: 484,
+    widths: [224],
+    headers: ["Skill"],
+    rows: [["Onboarding"], ["Compliance"], ["Payroll Coordination"], ["Employee Records"]],
+    rowHeight: 22,
+  });
+
+  page.section("Experience", 324, 510, 224);
+  page.table({
+    x: 324,
+    y: 484,
+    widths: [144, 80],
+    headers: ["Role", "Period"],
+    rows: [["HRMS User", "Current"], ["Team Member", "Previous"]],
+    rowHeight: 22,
+  });
+
+  page.section("Education & Certifications", PAGE.margin, 332, 506);
+  page.keyValueRows([
+    ["Highest Education", "Bachelor Degree"],
+    ["Certification", "Workplace Compliance"],
+    ["Document Status", status],
+  ], PAGE.margin, 304, 506, 22);
+
+  page.section("Declaration", PAGE.margin, 202, 506);
+  page.text("I confirm that the information recorded in this resume document is true", 58, 174, 10, COLORS.ink);
+  page.text("to the best of my knowledge and may be verified by HR.", 58, 156, 10, COLORS.ink);
+  page.line(58, 112, 230, 112);
+  page.text("Candidate Signature", 58, 94, 9, COLORS.muted);
+  page.line(346, 112, 548, 112);
+  page.text("HR Verification", 346, 94, 9, COLORS.muted);
+  drawFooter(page);
+}
+
+function drawBankProof(page, { employeeId, employeeName, status, issued }) {
+  drawHeader(page, "Bank Proof", "Salary disbursement account verification");
+  page.text("BANK ACCOUNT VERIFICATION", PAGE.margin, 724, 18, COLORS.ink, "F2");
+  page.text(employeeName, PAGE.margin, 704, 11, COLORS.muted);
+  page.pill(status.toUpperCase(), 444, 720, 104, status === "Rejected" ? COLORS.dangerSoft : COLORS.brandSoft);
+
+  const account = `XXXX XXXX ${digitsFor(employeeId, 4)}`;
+  const ifsc = `DAYF0${digitsFor(employeeName, 6)}`;
+  page.color(COLORS.brandSoft);
+  page.rect(PAGE.margin, 606, 506, 74);
+  page.text("DAYFLOW BANK", 62, 654, 13, COLORS.brand, "F2");
+  page.text("Verified salary account statement", 62, 634, 9, COLORS.muted);
+  page.right(account, 524, 644, 18, COLORS.brand, "F2");
+
+  page.section("Account Holder Details", PAGE.margin, 560, 506);
+  page.keyValueRows([
+    ["Account Holder", employeeName],
+    ["Employee ID", employeeId],
+    ["Account Number", account],
+    ["IFSC Code", ifsc],
+    ["Account Type", "Savings"],
+    ["Verification Date", issued],
+  ], PAGE.margin, 532, 506, 22);
+
+  page.section("Bank Verification", PAGE.margin, 360, 506);
+  page.table({
+    x: PAGE.margin,
+    y: 334,
+    widths: [180, 170, 156],
+    headers: ["Check", "Result", "Remarks"],
+    rows: [
+      ["Name Match", "Matched", "Employee record verified"],
+      ["Account Status", "Active", "Eligible for payroll"],
+      ["Proof Quality", "Readable", "PDF accepted"],
+      ["HR Decision", status, "Recorded in Dayflow"],
+    ],
+    rowHeight: 24,
+  });
+
+  page.section("Authorization", PAGE.margin, 178, 506);
+  page.text("Payroll Team", PAGE.margin, 140, 10, COLORS.ink, "F2");
+  page.line(PAGE.margin, 122, 220, 122);
+  page.text("Bank Account Holder", 330, 140, 10, COLORS.ink, "F2");
+  page.line(330, 122, 506, 122);
+  drawFooter(page);
+}
+
+function drawIdProof(page, { employeeId, employeeName, status, issued }) {
+  drawHeader(page, "Identity Proof", "Employee identity verification record");
+  page.text("IDENTITY VERIFICATION", PAGE.margin, 724, 18, COLORS.ink, "F2");
+  page.text(`${employeeName}  |  ${employeeId}`, PAGE.margin, 704, 10, COLORS.muted);
+  page.pill(status.toUpperCase(), 444, 720, 104, status === "Rejected" ? COLORS.dangerSoft : COLORS.brandSoft);
+
+  page.color(COLORS.brandSoft);
+  page.rect(PAGE.margin, 548, 318, 128);
+  page.color(COLORS.brand);
+  page.rect(62, 586, 72, 72);
+  page.text(employeeName.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase(), 82, 614, 24, "1 1 1", "F2");
+  page.text("GOVERNMENT ID PROOF", 154, 640, 13, COLORS.brand, "F2");
+  page.text(`Name: ${employeeName}`, 154, 616, 10, COLORS.ink);
+  page.text(`ID No: ID-${digitsFor(employeeId, 4)}-${digitsFor(employeeName, 4)}`, 154, 596, 10, COLORS.ink);
+  page.text(`Issued: ${issued}`, 154, 576, 10, COLORS.muted);
+
+  page.color(COLORS.paper);
+  page.rect(390, 548, 158, 128);
+  page.text("QR / BARCODE", 424, 622, 10, COLORS.muted, "F2");
+  page.color(COLORS.line);
+  for (let index = 0; index < 8; index += 1) {
+    const offset = index * 12;
+    page.line(412 + offset, 594, 412 + offset, 574);
+  }
+
+  page.section("Identity Details", PAGE.margin, 500, 506);
+  page.keyValueRows([
+    ["Full Name", employeeName],
+    ["Employee ID", employeeId],
+    ["Document Number", `ID-${digitsFor(employeeId, 4)}-${digitsFor(employeeName, 4)}`],
+    ["Date of Birth", "01 Jan 2000"],
+    ["Address", "Bangalore, Karnataka"],
+    ["Verification Status", status],
+  ], PAGE.margin, 472, 506, 22);
+
+  page.section("HR Verification Notes", PAGE.margin, 286, 506);
+  page.text("Identity proof has been captured for onboarding and access control.", 58, 258, 10, COLORS.ink);
+  page.text("The document is checked for name match, readability, and duplicate records.", 58, 240, 10, COLORS.ink);
+  page.line(58, 176, 230, 176);
+  page.text("Employee Signature", 58, 158, 9, COLORS.muted);
+  page.line(346, 176, 548, 176);
+  page.text("HR Officer Signature", 346, 158, 9, COLORS.muted);
+  drawFooter(page);
+}
+
+function drawOfferLetter(page, { employeeId, employeeName, status, issued }) {
+  drawHeader(page, "Offer Letter", "Employment offer and compensation confirmation");
+  page.text("OFFER OF EMPLOYMENT", PAGE.margin, 724, 20, COLORS.ink, "F2");
+  page.text(`Date: ${issued}`, PAGE.margin, 704, 10, COLORS.muted);
+  page.pill(status.toUpperCase(), 444, 720, 104, status === "Rejected" ? COLORS.dangerSoft : COLORS.brandSoft);
+
+  page.text(`Dear ${employeeName},`, PAGE.margin, 654, 11, COLORS.ink, "F2");
+  page.text("We are pleased to offer you employment with Dayflow HRMS Demo Company.", PAGE.margin, 626, 10, COLORS.ink);
+  page.text("This letter summarizes the key appointment details recorded for onboarding.", PAGE.margin, 608, 10, COLORS.ink);
+
+  page.section("Appointment Details", PAGE.margin, 560, 506);
+  page.keyValueRows([
+    ["Employee ID", employeeId],
+    ["Designation", "HRMS Team Member"],
+    ["Department", "Operations"],
+    ["Work Location", "Bangalore"],
+    ["Joining Date", issued],
+    ["Employment Type", "Full Time"],
+  ], PAGE.margin, 532, 506, 22);
+
+  page.section("Compensation Summary", PAGE.margin, 358, 506);
+  page.table({
+    x: PAGE.margin,
+    y: 332,
+    widths: [250, 126, 130],
+    headers: ["Component", "Frequency", "Amount"],
+    rows: [
+      ["Monthly Gross Salary", "Monthly", "As per HRMS payroll"],
+      ["Statutory Benefits", "Monthly", "As applicable"],
+      ["Leave Benefits", "Annual", "As per policy"],
+    ],
+    rowHeight: 24,
+  });
+
+  page.section("Acceptance", PAGE.margin, 204, 506);
+  page.text("Please sign below as acceptance of the employment terms.", PAGE.margin, 176, 10, COLORS.ink);
+  page.line(PAGE.margin, 126, 230, 126);
+  page.text("Authorized Signatory", PAGE.margin, 108, 9, COLORS.muted);
+  page.line(346, 126, 548, 126);
+  page.text("Candidate Signature", 346, 108, 9, COLORS.muted);
+  drawFooter(page);
+}
+
+function drawCertificate(page, { title, employeeId, employeeName, type, status, issued }) {
+  drawHeader(page, title, "Certificate record for employee onboarding");
+  page.color(COLORS.brandSoft);
+  page.rect(62, 630, 471, 86);
+  page.text("CERTIFICATE OF VERIFICATION", 154, 678, 18, COLORS.brand, "F2");
+  page.text(type.toUpperCase(), 224, 654, 12, COLORS.muted, "F2");
+  page.pill(status.toUpperCase(), 444, 720, 104, status === "Rejected" ? COLORS.dangerSoft : COLORS.brandSoft);
+
+  page.text("This certifies that the following employee document has been received", PAGE.margin, 582, 10, COLORS.ink);
+  page.text("and recorded in the Dayflow HRMS onboarding verification workflow.", PAGE.margin, 564, 10, COLORS.ink);
+
+  page.section("Certificate Holder", PAGE.margin, 520, 506);
+  page.keyValueRows([
+    ["Name", employeeName],
+    ["Employee ID", employeeId],
+    ["Certificate Type", type],
+    ["Issuing Authority", type === "Experience Letter" ? "Previous Employer" : "Academic Institution"],
+    ["Verification Date", issued],
+    ["HR Status", status],
+  ], PAGE.margin, 492, 506, 22);
+
+  page.section("Verification Notes", PAGE.margin, 318, 506);
+  page.table({
+    x: PAGE.margin,
+    y: 292,
+    widths: [190, 146, 170],
+    headers: ["Checkpoint", "Result", "Remarks"],
+    rows: [
+      ["Name match", status === "Rejected" ? "Needs Review" : "Matched", "Compared with profile"],
+      ["Document readability", "Readable", "PDF available"],
+      ["HR decision", status, "Logged in audit trail"],
+    ],
+    rowHeight: 24,
+  });
+
+  page.section("Certification", PAGE.margin, 176, 506);
+  page.text("Verified by HR Officer", PAGE.margin, 138, 10, COLORS.ink, "F2");
+  page.line(PAGE.margin, 120, 230, 120);
+  page.text("Employee Acknowledgement", 346, 138, 10, COLORS.ink, "F2");
+  page.line(346, 120, 548, 120);
+  drawFooter(page);
+}
+
+function drawGenericOnboarding(page, { title, employeeId, employeeName, type, status, issued }) {
   drawHeader(page, title, "Employee onboarding and document verification");
   page.pill(status.toUpperCase(), 444, 720, 104, status === "Rejected" ? COLORS.dangerSoft : COLORS.brandSoft);
   page.text(employeeName, PAGE.margin, 720, 21, COLORS.ink, "F2");
@@ -176,6 +411,17 @@ export function createDemoPdfBuffer({ title, employeeId, employeeName, type, sta
   page.text("Employee Signature", 330, 222, 10, COLORS.ink, "F2");
   page.line(330, 204, 506, 204);
   drawFooter(page);
+}
+
+export function createDemoPdfBuffer({ title, employeeId, employeeName, type, status }) {
+  const page = new PdfPage();
+  const issued = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  if (type === "Resume") drawResume(page, { employeeId, employeeName, status, issued });
+  else if (type === "Bank Proof") drawBankProof(page, { employeeId, employeeName, status, issued });
+  else if (type === "ID Proof") drawIdProof(page, { employeeId, employeeName, status, issued });
+  else if (type === "Offer Letter") drawOfferLetter(page, { employeeId, employeeName, status, issued });
+  else if (type === "Education Certificate" || type === "Experience Letter") drawCertificate(page, { title, employeeId, employeeName, type, status, issued });
+  else drawGenericOnboarding(page, { title, employeeId, employeeName, type, status, issued });
   return buildPdf(page);
 }
 

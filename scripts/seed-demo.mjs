@@ -108,6 +108,8 @@ for (const employeeId of ["ODOJO23001", "ODOAN24002", "ODOME24004", "ODORA25005"
   insertDocument(employeeId, "Resume", "Approved");
   insertDocument(employeeId, "ID Proof", employeeId === "ODOME24004" ? "Pending" : "Approved");
   insertDocument(employeeId, "Bank Proof", employeeId === "ODORA25005" ? "Rejected" : "Approved");
+  insertDocument(employeeId, "Offer Letter", "Approved");
+  insertDocument(employeeId, "Education Certificate", employeeId === "ODOPR25006" ? "Pending" : "Approved");
 }
 
 db.prepare(`
