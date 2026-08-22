@@ -1029,11 +1029,13 @@ function DocumentPanel({
   role,
   onDecision,
   onUpload,
+  panelClassName = "",
 }: {
   documents: EmployeeDocument[];
   role: Role;
   onDecision?: (id: number, status: "Approved" | "Rejected", comment: string) => Promise<void>;
   onUpload?: (document: UploadFile) => Promise<void>;
+  panelClassName?: string;
 }) {
   const [comments, setComments] = useState<Record<number, string>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -1075,7 +1077,7 @@ function DocumentPanel({
   }
 
   return (
-    <div className="panel">
+    <div className={`panel ${panelClassName}`.trim()}>
       <div className="panel-head">
         <div>
           <p>{role === "admin" ? "Verification queue" : "My uploads"}</p>
@@ -1643,9 +1645,19 @@ function ProfileView({
     }
   }
 
+  const detailRows = [
+    ["Email", employee.email],
+    ["Phone", employee.phone],
+    ["Address", employee.address],
+    ["Manager", employee.manager],
+    ["Joined", employee.joined],
+    ["Monthly Salary", currency(employee.wage)],
+    ["Edit Access", role === "admin" ? "All fields" : "Phone, address, profile picture"],
+  ];
+
   return (
-    <section className="grid-two">
-      <div className="panel profile">
+    <section className="grid-two profile-layout">
+      <div className="panel profile profile-card">
         {profilePreview ? <img className="avatar big photo" src={profilePreview} alt="" /> : <div className="avatar big">{employee.avatar}</div>}
         <h2>{employee.name}</h2>
         <p>{employee.title} / {employee.department}</p>
@@ -1655,7 +1667,7 @@ function ProfileView({
           {role === "admin" && <button className="danger small" disabled={deleting} onClick={removeEmployee}>{deleting ? "Deleting..." : "Delete Employee"}</button>}
         </div>
       </div>
-      <div className="panel">
+      <div className="panel profile-private">
         <div className="panel-head">
           <div>
             <p>{role === "admin" ? "Admin editable profile" : "Employee editable profile"}</p>
@@ -1663,18 +1675,14 @@ function ProfileView({
           </div>
         </div>
         {!editing ? (
-          <DataTable
-            headers={["Field", "Value"]}
-            rows={[
-              ["Email", employee.email],
-              ["Phone", employee.phone],
-              ["Address", employee.address],
-              ["Manager", employee.manager],
-              ["Joined", employee.joined],
-              ["Monthly Salary", currency(employee.wage)],
-              ["Edit Access", role === "admin" ? "All fields" : "Phone, address, profile picture"],
-            ]}
-          />
+          <dl className="profile-details">
+            {detailRows.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
         ) : (
           <div className="form-grid compact">
             {role === "admin" && <label><span>name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>}
@@ -1691,7 +1699,19 @@ function ProfileView({
           </div>
         )}
       </div>
-      <div className="panel">
+      <div className="panel profile-skills">
+        <h2>Documents & Skills</h2>
+        <p><FileText size={16} /> Resume, bank proof, identity documents, offer letter, and certificates</p>
+        <div className="tags">{employee.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
+      </div>
+      <DocumentPanel
+        documents={ownDocuments}
+        role={role}
+        onDecision={onDocumentDecision}
+        onUpload={role === "employee" ? onDocumentUpload : undefined}
+        panelClassName="profile-documents"
+      />
+      <div className="panel profile-status">
         <div className="panel-head">
           <div>
             <p>Completion</p>
@@ -1707,12 +1727,6 @@ function ProfileView({
           ))}
         </div>
       </div>
-      <div className="panel">
-        <h2>Documents & Skills</h2>
-        <p><FileText size={16} /> Resume, bank proof, identity documents, offer letter, and certificates</p>
-        <div className="tags">{employee.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
-      </div>
-      <DocumentPanel documents={ownDocuments} role={role} onDecision={onDocumentDecision} onUpload={role === "employee" ? onDocumentUpload : undefined} />
     </section>
   );
 }

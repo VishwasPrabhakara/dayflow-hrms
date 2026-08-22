@@ -652,6 +652,71 @@ nav button:hover,
   text-align: center;
 }
 
+.profile-layout {
+  grid-template-columns: minmax(280px, 0.42fr) minmax(0, 1fr);
+  grid-template-areas:
+    "card private"
+    "skills documents"
+    "status documents";
+}
+
+.profile-card {
+  grid-area: card;
+}
+
+.profile-private {
+  grid-area: private;
+}
+
+.profile-skills {
+  grid-area: skills;
+}
+
+.profile-status {
+  grid-area: status;
+}
+
+.profile-documents {
+  grid-area: documents;
+}
+
+.profile-details {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.profile-details div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.42fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(23, 32, 29, 0.1);
+}
+
+.profile-details div:first-child {
+  padding-top: 0;
+}
+
+.profile-details div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.profile-details dt {
+  color: #66756f;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.profile-details dd {
+  min-width: 0;
+  margin: 0;
+  color: #3e4945;
+  overflow-wrap: anywhere;
+}
+
 .profile-actions {
   display: grid;
   gap: 8px;
@@ -976,6 +1041,15 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .profile-layout {
+    grid-template-areas:
+      "card"
+      "private"
+      "skills"
+      "documents"
+      "status";
+  }
+
   .app.sidebar-collapsed {
     grid-template-columns: 1fr;
   }
@@ -1028,6 +1102,11 @@ th {
   .document-row {
     grid-template-columns: 1fr;
     grid-column: span 1;
+  }
+
+  .profile-details div {
+    grid-template-columns: 1fr;
+    gap: 5px;
   }
 
   .panel-head {
