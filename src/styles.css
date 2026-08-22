@@ -362,6 +362,11 @@ nav button:hover,
   align-items: start;
 }
 
+.reports {
+  display: grid;
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   padding: 20px;
@@ -514,6 +519,13 @@ nav button:hover,
   background: #f6faf8;
 }
 
+.filter-bar.compact-filter {
+  min-width: 220px;
+  padding: 0;
+  background: transparent;
+  grid-template-columns: 1fr;
+}
+
 .filter-bar label {
   display: grid;
   gap: 7px;
@@ -626,6 +638,39 @@ th {
   color: #13665b;
 }
 
+.bar-list {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) 42px;
+  gap: 10px;
+  align-items: center;
+  font-weight: 850;
+}
+
+.bar-row span,
+.bar-row strong {
+  color: #52635d;
+}
+
+.bar-row div {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7eee9;
+}
+
+.bar-row i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #13665b;
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;
@@ -680,6 +725,7 @@ th {
   .tabs,
   .metrics,
   .filter-bar,
+  .filter-bar.compact-filter,
   .cards,
   .form-grid,
   .form-grid.compact,

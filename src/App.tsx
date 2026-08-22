@@ -385,7 +385,7 @@ function App() {
           />
         )}
         {active === "payroll" && <PayrollView role={user.role} rows={payroll} employees={employees} employee={selectedEmployee} token={token} />}
-        {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} />}
+        {active === "reports" && <ReportsView employees={employees} attendance={attendance} leaves={leaves} payroll={payroll} documents={documents} />}
       </section>
     </main>
   );
@@ -1355,22 +1355,170 @@ function PayrollView({
   );
 }
 
-function ReportsView({ employees, attendance, leaves }: { employees: Employee[]; attendance: Attendance[]; leaves: LeaveRequest[] }) {
+function ReportsView({
+  employees,
+  attendance,
+  leaves,
+  payroll,
+  documents,
+}: {
+  employees: Employee[];
+  attendance: Attendance[];
+  leaves: LeaveRequest[];
+  payroll: PayrollSlip[];
+  documents: EmployeeDocument[];
+}) {
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const monthAttendance = attendance.filter((row) => row.work_date.startsWith(month));
+  const attendanceCounts = {
+    Present: monthAttendance.filter((row) => row.status === "Present").length,
+    "Half-day": monthAttendance.filter((row) => row.status === "Half-day").length,
+    Leave: monthAttendance.filter((row) => row.status === "Leave").length,
+    Absent: monthAttendance.filter((row) => row.status === "Absent").length,
+  };
+  const leaveCounts = {
+    Pending: leaves.filter((row) => row.status === "Pending").length,
+    Approved: leaves.filter((row) => row.status === "Approved").length,
+    Rejected: leaves.filter((row) => row.status === "Rejected").length,
+    Paid: leaves.filter((row) => row.type === "Paid").reduce((sum, row) => sum + row.days, 0),
+    Sick: leaves.filter((row) => row.type === "Sick").reduce((sum, row) => sum + row.days, 0),
+    Unpaid: leaves.filter((row) => row.type === "Unpaid").reduce((sum, row) => sum + row.days, 0),
+  };
+  const payrollSummary = payroll.reduce(
+    (acc, slip) => ({
+      gross: acc.gross + slip.grossPay,
+      deductions: acc.deductions + slip.deduction,
+      net: acc.net + slip.netPay,
+    }),
+    { gross: 0, deductions: 0, net: 0 }
+  );
+  const topPayroll = payroll.reduce<PayrollSlip | null>((top, slip) => (!top || slip.netPay > top.netPay ? slip : top), null);
+  const lowestPayroll = payroll.reduce<PayrollSlip | null>((low, slip) => (!low || slip.netPay < low.netPay ? slip : low), null);
+  const documentCounts = {
+    Approved: documents.filter((document) => document.status === "Approved").length,
+    Pending: documents.filter((document) => document.status === "Pending").length,
+    Rejected: documents.filter((document) => document.status === "Rejected").length,
+  };
+  const activated = employees.filter((employee) => employee.accountVerified && !employee.mustChangePassword).length;
+  const maxAttendance = Math.max(1, ...Object.values(attendanceCounts));
+  const maxLeave = Math.max(1, leaveCounts.Paid, leaveCounts.Sick, leaveCounts.Unpaid);
+
   return (
-    <section className="grid-two">
+    <section className="reports">
       <div className="panel">
-        <h2>Attendance Report</h2>
-        <p>{attendance.filter((row) => row.status === "Present").length} present records from {attendance.length} attendance rows.</p>
+        <div className="panel-head">
+          <div>
+            <p>Monthly overview</p>
+            <h2>Executive Report</h2>
+          </div>
+          <div className="filter-bar compact-filter">
+            <label><span>Month</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+          </div>
+        </div>
+        <section className="metrics mini">
+          <Metric label="Employees" value={String(employees.length)} />
+          <Metric label="Activated" value={`${activated}/${employees.length}`} />
+          <Metric label="Net Payroll" value={currency(payrollSummary.net)} />
+          <Metric label="Open Items" value={String(leaveCounts.Pending + documentCounts.Pending)} />
+        </section>
       </div>
-      <div className="panel">
-        <h2>Leave Report</h2>
-        <p>{leaves.filter((row) => row.status === "Pending").length} pending, {leaves.filter((row) => row.status === "Approved").length} approved.</p>
-      </div>
-      <div className="panel">
-        <h2>Payroll Report</h2>
-        <p>{currency(employees.reduce((sum, employee) => sum + employee.wage, 0))} monthly wage liability.</p>
-      </div>
+      <section className="grid-two">
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p>Attendance distribution</p>
+              <h2>Attendance</h2>
+            </div>
+          </div>
+          <BarList rows={Object.entries(attendanceCounts).map(([label, value]) => ({ label, value, max: maxAttendance }))} />
+          <DataTable
+            headers={["Metric", "Value"]}
+            rows={[
+              ["Total Hours", monthAttendance.reduce((sum, row) => sum + Number(row.work_hours || 0), 0).toFixed(1)],
+              ["Extra Hours", monthAttendance.reduce((sum, row) => sum + Number(row.extra_hours || 0), 0).toFixed(1)],
+              ["Attendance Rows", monthAttendance.length],
+            ]}
+          />
+        </div>
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p>Leave workflow</p>
+              <h2>Time Off</h2>
+            </div>
+          </div>
+          <section className="metrics mini">
+            <Metric label="Pending" value={String(leaveCounts.Pending)} />
+            <Metric label="Approved" value={String(leaveCounts.Approved)} />
+            <Metric label="Rejected" value={String(leaveCounts.Rejected)} />
+            <Metric label="Total Days" value={String(leaveCounts.Paid + leaveCounts.Sick + leaveCounts.Unpaid)} />
+          </section>
+          <BarList rows={[
+            { label: "Paid", value: leaveCounts.Paid, max: maxLeave },
+            { label: "Sick", value: leaveCounts.Sick, max: maxLeave },
+            { label: "Unpaid", value: leaveCounts.Unpaid, max: maxLeave },
+          ]} />
+        </div>
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p>Payroll liability</p>
+              <h2>Payroll</h2>
+            </div>
+          </div>
+          <DataTable
+            headers={["Metric", "Value"]}
+            rows={[
+              ["Gross Payroll", currency(payrollSummary.gross)],
+              ["Deductions", currency(payrollSummary.deductions)],
+              ["Net Payout", currency(payrollSummary.net)],
+              ["Highest Net Pay", topPayroll ? `${topPayroll.name} / ${currency(topPayroll.netPay)}` : "-"],
+              ["Lowest Net Pay", lowestPayroll ? `${lowestPayroll.name} / ${currency(lowestPayroll.netPay)}` : "-"],
+            ]}
+          />
+        </div>
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p>Onboarding health</p>
+              <h2>Documents & Accounts</h2>
+            </div>
+          </div>
+          <section className="metrics mini">
+            <Metric label="Approved Docs" value={String(documentCounts.Approved)} />
+            <Metric label="Pending Docs" value={String(documentCounts.Pending)} />
+            <Metric label="Rejected Docs" value={String(documentCounts.Rejected)} />
+            <Metric label="Pending Accounts" value={String(employees.length - activated)} />
+          </section>
+          <DataTable
+            headers={["Employee", "Account", "Documents"]}
+            rows={employees.map((employee) => {
+              const ownDocs = documents.filter((document) => document.employee_id === employee.id);
+              const approvedDocs = ownDocs.filter((document) => document.status === "Approved").length;
+              return [
+                employee.name,
+                employee.accountVerified && !employee.mustChangePassword ? "Activated" : "Pending",
+                `${approvedDocs}/${ownDocs.length} approved`,
+              ];
+            })}
+          />
+        </div>
+      </section>
     </section>
+  );
+}
+
+function BarList({ rows }: { rows: { label: string; value: number; max: number }[] }) {
+  return (
+    <div className="bar-list">
+      {rows.map((row) => (
+        <div className="bar-row" key={row.label}>
+          <span>{row.label}</span>
+          <div><i style={{ width: `${Math.max(4, (row.value / row.max) * 100)}%` }} /></div>
+          <strong>{row.value}</strong>
+        </div>
+      ))}
+    </div>
   );
 }
 
