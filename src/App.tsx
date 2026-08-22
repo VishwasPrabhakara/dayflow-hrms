@@ -1756,7 +1756,7 @@ function ProfileView({
   ];
 
   return (
-    <section className="grid-two profile-layout">
+    <section className={`grid-two profile-layout ${role === "employee" ? "employee-profile-layout" : ""}`}>
       <div className="panel profile profile-card">
         {profilePreview ? <img className="avatar big photo" src={profilePreview} alt="" /> : <div className="avatar big">{employee.avatar}</div>}
         <h2>{employee.name}</h2>

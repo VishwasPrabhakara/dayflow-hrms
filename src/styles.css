@@ -684,6 +684,67 @@ nav button:hover,
   grid-area: documents;
 }
 
+.employee-profile-layout {
+  grid-template-columns: minmax(260px, 0.36fr) minmax(0, 1fr);
+  grid-template-areas:
+    "card private"
+    "skills documents"
+    "status documents";
+  gap: 14px;
+}
+
+.employee-profile-layout .panel {
+  padding: 16px;
+}
+
+.employee-profile-layout .profile-card {
+  padding-top: 20px;
+  padding-bottom: 18px;
+}
+
+.employee-profile-layout .avatar.big {
+  width: 92px;
+  height: 92px;
+  margin-bottom: 12px;
+}
+
+.employee-profile-layout .profile-actions {
+  margin-top: 12px;
+}
+
+.employee-profile-layout .profile-details div {
+  padding: 9px 0;
+}
+
+.employee-profile-layout .panel-head {
+  margin-bottom: 10px;
+}
+
+.employee-profile-layout .profile-skills p {
+  margin-bottom: 8px;
+}
+
+.employee-profile-layout .tags {
+  margin-top: 8px;
+}
+
+.employee-profile-layout .checklist {
+  gap: 7px;
+}
+
+.employee-profile-layout .checklist div {
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.employee-profile-layout .document-upload {
+  margin-bottom: 10px;
+}
+
+.employee-profile-layout .request {
+  padding: 11px 12px;
+}
+
 .profile-details {
   display: grid;
   gap: 0;
@@ -1101,8 +1162,8 @@ th {
       "card"
       "private"
       "skills"
-      "documents"
-      "status";
+      "status"
+      "documents";
   }
 
   .app.sidebar-collapsed {
